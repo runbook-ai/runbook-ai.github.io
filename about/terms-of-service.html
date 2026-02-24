@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Terms of Service — Runbook AI</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f5f7fa;
+      color: #1a1a2e;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 16px;
+    }
+
+    .container {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 40px 48px;
+      width: 100%;
+      max-width: 820px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-bottom: 8px;
+    }
+
+    .effective-date {
+      font-size: 0.875rem;
+      color: #9ca3af;
+      margin-bottom: 32px;
+    }
+
+    h2 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: #1a1a2e;
+      margin-top: 28px;
+      margin-bottom: 10px;
+    }
+
+    p {
+      font-size: 0.9375rem;
+      line-height: 1.7;
+      color: #374151;
+      margin-bottom: 12px;
+    }
+
+    ul {
+      margin: 8px 0 12px 20px;
+    }
+
+    ul li {
+      font-size: 0.9375rem;
+      line-height: 1.7;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+
+    ul li strong {
+      color: #1a1a2e;
+    }
+
+    .caps {
+      font-size: 0.9375rem;
+      line-height: 1.7;
+      color: #374151;
+      margin-bottom: 12px;
+    }
+
+    a {
+      color: #6366f1;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    footer {
+      margin-top: 32px;
+      font-size: 0.8125rem;
+      color: #9ca3af;
+      text-align: center;
+    }
+
+    footer a {
+      color: #6366f1;
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>Runbook AI Terms of Service</h1>
+    <p class="effective-date">Effective Date: February 23, 2026</p>
+
+    <h2>1. Agreement to Terms</h2>
+    <p>By accessing or using the Runbook AI Chrome Extension and the Runbook AI Website (located at <code>runbook-ai.github.io/</code>), you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the software or the website.</p>
+
+    <h2>2. Description of Service</h2>
+    <p>Runbook AI is a browser based automation framework. It allows users to:</p>
+    <ul>
+      <li>Connect their Gmail account to a local browser environment via an OAuth-enabled web gateway.</li>
+      <li>Automate browser-based tasks ("Runbooks") using user-provided Large Language Model (LLM) APIs.</li>
+      <li>Execute autonomous agent flows triggered by incoming emails.</li>
+    </ul>
+
+    <h2>3. "No-Backend" Architecture &amp; Data Sovereignty</h2>
+    <p>Runbook AI is designed as a <strong>local-first, "no-backend" application</strong>.</p>
+    <ul>
+      <li><strong>Local Processing:</strong> All authentication tokens, email content, and LLM prompts are processed locally within your browser and extension.</li>
+      <li><strong>No Central Server:</strong> The developers of Runbook AI do not host your data, cannot access your Gmail account, and do not provide the LLM processing power.</li>
+      <li><strong>User Responsibility:</strong> You are responsible for providing your own API keys for third-party AI services (e.g., OpenAI, Anthropic, DeepSeek).</li>
+    </ul>
+
+    <h2>4. User Responsibilities</h2>
+    <p>As a user, you are solely responsible for:</p>
+    <ul>
+      <li><strong>Agent Actions:</strong> Any actions taken by the AI agent on your behalf, including but not limited to clicking links, filling out forms, or sending emails.</li>
+      <li><strong>Compliance:</strong> Ensuring your use of the tool complies with Google's API Terms of Service, the Chrome Web Store policies, and your LLM provider's terms.</li>
+      <li><strong>Security:</strong> Protecting your local machine, browser session, and any stored OAuth tokens or API keys.</li>
+    </ul>
+
+    <h2>5. Prohibited Conduct</h2>
+    <p>You agree not to use Runbook AI to:</p>
+    <ul>
+      <li>Create, send, or distribute spam or unsolicited bulk communications.</li>
+      <li>Attempt to gain unauthorized access to any service, account, or data.</li>
+      <li>Perform any action that violates local, state, or international laws.</li>
+    </ul>
+
+    <h2>6. Disclaimer of Warranties</h2>
+    <p class="caps">RUNBOOK AI IS PROVIDED "AS IS" AND "AS AVAILABLE." TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE DEVELOPERS DISCLAIM ALL WARRANTIES, EXPRESS OR IMPLIED. WE DO NOT GUARANTEE THAT THE AGENT WILL PERFORM TASKS ACCURATELY, SAFELY, OR WITHOUT ERROR. AUTOMATION OF BROWSER TASKS CARRIES INHERENT RISKS.</p>
+
+    <h2>7. Limitation of Liability</h2>
+    <p class="caps">IN NO EVENT SHALL THE DEVELOPERS OR CONTRIBUTORS BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, OR CONSEQUENTIAL DAMAGES, INCLUDING BUT NOT LIMITED TO:</p>
+    <ul>
+      <li>LOSS OF DATA OR SECURITY BREACHES ON YOUR LOCAL MACHINE.</li>
+      <li>FINANCIAL LOSS RESULTING FROM THIRD-PARTY LLM API USAGE.</li>
+      <li>UNAUTHORIZED ACTIONS TAKEN BY THE AUTOMATED AGENT IN YOUR BROWSER.</li>
+    </ul>
+
+    <h2>8. Changes to Terms</h2>
+    <p>We reserve the right to modify these terms at any time. Updates will be posted to the official GitHub repository or the Gateway website. Continued use of the Service after changes are posted constitutes your acceptance of the new terms.</p>
+
+    <h2>9. Contact</h2>
+    <p>For questions regarding these terms, please open an issue on the official <a href="https://github.com/runbook-ai" target="_blank">Runbook AI GitHub repository</a>.</p>
+  </div>
+
+  <footer>
+    <a href="/">← Back to Runbook AI</a>
+  </footer>
+
+</body>
+</html>
