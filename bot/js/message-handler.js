@@ -108,6 +108,14 @@ export async function handleMessageCreate(msg, botUserId) {
     return;
   }
 
+  // Unknown ! command — reject with !help hint
+  if (msg.content.trimStart().startsWith('!')) {
+    const unknown = `Unknown command. Type \`!help\` to see available commands.`;
+    await sendDiscordMessage(channelId, unknown, s.botToken, msg.id);
+    logMessage({ channel_id: channelId, content: unknown }, 'outgoing');
+    return;
+  }
+
   // Free-form message — enqueue for the extension to handle
   enqueueTask(msg, channelId, msg.content, {}, s);
 }
@@ -189,10 +197,9 @@ async function runViaExtension(msg, channelId, prompt, config, s) {
     }
 
     // Switch back to the bot tab so it stays active for the next task.
-    // Match on origin+pathname prefix so trailing slashes / index.html variants all resolve.
-    const botUrl = window.location.origin + window.location.pathname;
+    const botUrl = document.location.href;
     const botTab = taskResp?.taskState?.tabs?.find(
-      t => t.url && (t.url === botUrl || t.url.startsWith(botUrl.replace(/\/[^/]*$/, '/')))
+      t => t.url && t.url === botUrl
     );
     if (botTab?.tabId != null) {
       chrome.runtime.sendMessage(EXTENSION_ID, {
