@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Runbooks — Runbook AI</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f5f7fa;
+      color: #1a1a2e;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* -- Nav ------------------------------------------------- */
+    .site-nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid #e5e7eb;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+      flex-shrink: 0;
+    }
+    .nav-logo {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #1a1a2e;
+      text-decoration: none;
+      letter-spacing: -0.3px;
+    }
+    .nav-logo:hover { color: #6366f1; }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      list-style: none;
+    }
+    .nav-links a { font-size: 0.875rem; color: #6b7280; font-weight: 500; text-decoration: none; }
+    .nav-links a:hover { color: #1a1a2e; }
+    .btn-install {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 20px; border-radius: 8px;
+      font-size: 0.875rem; font-weight: 600;
+      background: #6366f1; color: #fff; border: none;
+      cursor: pointer; text-decoration: none; white-space: nowrap;
+    }
+    .btn-install:hover { background: #4f46e5; text-decoration: none; }
+    @media (max-width: 480px) { .nav-links { display: none; } }
+
+    /* -- Page main ------------------------------------------- */
+    .page-main {
+      flex: 1;
+      width: 100%;
+      max-width: 852px;
+      margin: 0 auto;
+      padding: 40px 16px 48px;
+    }
+
+    /* -- Page intro ------------------------------------------ */
+    .page-intro {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .page-intro h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: #1a1a2e;
+      letter-spacing: -0.5px;
+    }
+    .page-intro p {
+      margin-top: 8px;
+      font-size: 1rem;
+      color: #6b7280;
+    }
+    .page-intro a { color: #6366f1; text-decoration: none; }
+    .page-intro a:hover { text-decoration: underline; }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 32px;
+      width: 100%;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+
+    .field { margin-bottom: 20px; }
+
+    .label {
+      display: block;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+
+    select {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 0.9375rem;
+      color: #374151;
+      background: #f9fafb;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    select:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+      background: #fff;
+    }
+
+    textarea {
+      width: 100%;
+      padding: 14px 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.875rem;
+      line-height: 1.65;
+      color: #374151;
+      background: #f9fafb;
+      resize: vertical;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      outline: none;
+    }
+
+    textarea:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+      background: #fff;
+    }
+
+    #promptArea { height: 240px; }
+    #configArea { height: 100px; }
+
+    .free-api-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+      margin-bottom: 6px;
+    }
+
+    .free-api-row input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #6366f1;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .free-api-row label {
+      font-size: 0.875rem;
+      color: #374151;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .free-api-row .free-badge {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #059669;
+      background: #d1fae5;
+      border-radius: 4px;
+      padding: 1px 6px;
+    }
+
+    .run-hint {
+      font-size: 0.8125rem;
+      color: #9ca3af;
+      font-style: italic;
+    }
+
+    .actions {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .actions-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    button#runBtn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 24px;
+      background: #6366f1;
+      color: #fff;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      white-space: nowrap;
+    }
+
+    button#runBtn:hover   { background: #4f46e5; }
+    button#runBtn:active  { transform: scale(0.97); }
+    button#runBtn:disabled {
+      background: #a5b4fc;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    #status           { font-size: 0.875rem; color: #6b7280; }
+    #status.success   { color: #059669; }
+    #status.error     { color: #dc2626; }
+
+    .site-footer {
+      background: #fff;
+      border-top: 1px solid #e5e7eb;
+      padding: 28px 24px;
+      text-align: center;
+      font-size: 0.8125rem;
+      color: #9ca3af;
+    }
+    .site-footer a { color: #6b7280; text-decoration: none; }
+    .site-footer a:hover { color: #6366f1; }
+
+    .pr-banner {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+      padding: 8px 18px;
+      background: #f6f8fa;
+      border: 1px solid #d0d7de;
+      border-radius: 20px;
+      font-size: 0.875rem;
+      color: #24292f;
+      text-decoration: none;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .pr-banner:hover { background: #eaeef2; border-color: #b0b7be; }
+  </style>
+</head>
+<body>
+
+  <nav class="site-nav">
+    <a class="nav-logo" href="/">Runbook AI</a>
+    <ul class="nav-links">
+      <li><a href="/runbooks/">Runbooks</a></li>
+      <li><a href="/bot/">Messaging Bot</a></li>
+      <li><a href="https://github.com/runbook-ai/runbook-ai-mcp" target="_blank">MCP Server</a></li>
+      <li><a href="https://discord.gg/SDtXkAKK2B" target="_blank">Discord</a></li>
+      <li><a href="https://github.com/runbook-ai" target="_blank">GitHub</a></li>
+    </ul>
+    <a class="btn-install" href="https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj" target="_blank">Install Extension</a>
+  </nav>
+
+  <main class="page-main">
+
+  <div class="page-intro">
+    <p>Select a runbook and run it directly in your browser.</p>
+    <div style="margin-top:12px;">
+      <a class="pr-banner" href="https://github.com/runbook-ai/runbook-ai.github.io" target="_blank">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="#24292f" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        Share your runbook — send a PR
+      </a>
+    </div>
+  </div>
+
+  <div class="card">
+
+    <div class="field">
+      <label class="label" for="runbookSelect">Select a Runbook</label>
+      <select id="runbookSelect">
+        <option value="">-- Choose a runbook --</option>
+        <option value="craigslist-car-listings">Find Craigslist Car Listings</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="label" for="promptArea">Prompt</label>
+      <textarea id="promptArea" placeholder="Select a runbook above to load its prompt…"></textarea>
+    </div>
+
+    <div class="field">
+      <label class="label" for="configArea">Config (JSON)</label>
+      <textarea id="configArea" placeholder="Select a runbook above to load its config…"></textarea>
+    </div>
+
+    <div class="free-api-row">
+      <input type="checkbox" id="freeApiCheckbox">
+      <label for="freeApiCheckbox">Use free API key</label>
+      <span class="free-badge">FREE</span>
+      <span class="run-hint" style="margin-left:4px;">Rate limited — bring your own key for faster responses.</span>
+    </div>
+
+    <div class="actions">
+      <div class="actions-row">
+        <button id="runBtn" disabled>&#9654; Run</button>
+        <span class="run-hint">When clicked, this runbook will be executed by the Runbook AI extension. You can also copy the prompt and paste it into the extension sidepanel input, then press Enter to run.</span>
+      </div>
+      <span id="status"></span>
+    </div>
+
+  </div>
+
+  </main>
+
+  <footer class="site-footer">
+    &copy; Runbook AI &mdash; open source &amp; community driven. &nbsp;&middot;&nbsp;
+    <a href="/about/privacy-policy.html">Privacy Policy</a> &middot;
+    <a href="/about/terms-of-service.html">Terms of Service</a>
+  </footer>
+
+  <script>
+    const EXTENSION_ID = "kjbhngehjkiiecaflccjenmoccielojj";
+
+    const runbookSelect = document.getElementById("runbookSelect");
+    const promptArea    = document.getElementById("promptArea");
+    const configArea    = document.getElementById("configArea");
+    const runBtn        = document.getElementById("runBtn");
+    const status        = document.getElementById("status");
+
+    runbookSelect.addEventListener("change", async () => {
+      const name = runbookSelect.value;
+      status.textContent = "";
+      status.className = "";
+
+      if (!name) {
+        promptArea.value = "";
+        configArea.value = "";
+        runBtn.disabled = true;
+        return;
+      }
+
+      try {
+        const [mdRes, jsonRes] = await Promise.all([
+          fetch(`${name}.md`),
+          fetch(`${name}.json`),
+        ]);
+        promptArea.value = mdRes.ok   ? await mdRes.text()   : "(Failed to load prompt)";
+        configArea.value = jsonRes.ok ? await jsonRes.text() : "{}";
+        runBtn.disabled = false;
+      } catch (err) {
+        console.error(err);
+        promptArea.value = "";
+        configArea.value = "";
+        status.textContent = "Failed to load runbook files.";
+        status.className = "error";
+        runBtn.disabled = true;
+      }
+    });
+
+    async function startRunbook(prompt, config) {
+      const openResp = await chrome.runtime.sendMessage(EXTENSION_ID, { action: "openSidePanel" });
+      if (openResp?.error) return openResp;
+      await new Promise(r => setTimeout(r, 500));
+      const setConfigResp = await chrome.runtime.sendMessage(EXTENSION_ID, {
+        action: "setRemoteConfig",
+        args: { config }
+      });
+      if (setConfigResp?.error) return setConfigResp;
+      chrome.runtime.sendMessage(EXTENSION_ID, { action: "runHeadlessTask", args: { prompt } });
+      return { message: "Runbook started successfully." };
+    }
+
+    runBtn.addEventListener("click", async () => {
+      const prompt = promptArea.value.trim();
+      if (!prompt) {
+        status.textContent = "Prompt is empty.";
+        status.className = "error";
+        return;
+      }
+
+      let config = {};
+      try {
+        config = JSON.parse(configArea.value || "{}");
+      } catch {
+        status.textContent = "Config JSON is invalid.";
+        status.className = "error";
+        return;
+      }
+
+      if (document.getElementById("freeApiCheckbox").checked) {
+        config.llmBaseUrl = "https://llm.runbookai.net/v1";
+        config.llmApiKey  = "free";
+      }
+
+      runBtn.disabled = true;
+      status.textContent = "Starting runbook…";
+      status.className = "";
+
+      try {
+        const result = await startRunbook(prompt, config);
+        if (result?.error) {
+          status.textContent = result.message || result.error;
+          status.className = "error";
+        } else {
+          status.textContent = result?.message ?? "Runbook started successfully.";
+          status.className = "success";
+        }
+      } catch (err) {
+        console.error(err);
+        status.textContent = "Failed to start runbook. Make sure the Runbook AI extension is installed and enabled.";
+        status.className = "error";
+      } finally {
+        runBtn.disabled = false;
+      }
+    });
+
+    // Auto-load runbook from URL param ?runbook=...
+    const urlRunbook = new URLSearchParams(window.location.search).get("runbook");
+    if (urlRunbook) {
+      runbookSelect.value = urlRunbook;
+      if (runbookSelect.value === urlRunbook) {
+        runbookSelect.dispatchEvent(new Event("change"));
+      }
+    }
+  </script>
+
+</body>
+</html>

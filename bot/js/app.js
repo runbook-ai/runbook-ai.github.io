@@ -6,6 +6,7 @@ import { gwConnect, gwDisconnect, gw } from './gateway.js';
 const fields = {
   botToken:     document.getElementById('botToken'),
   allowedUsers: document.getElementById('allowedUsers'),
+  freeApiKey:   document.getElementById('freeApiCheckbox'),
 };
 
 // Populate form fields from persisted settings on load.
@@ -13,6 +14,7 @@ const fields = {
   const s = loadSettings();
   fields.botToken.value     = s.botToken ?? '';
   fields.allowedUsers.value = (s.allowedUsers ?? []).join('\n');
+  fields.freeApiKey.checked = s.freeApiKey ?? false;
 })();
 
 document.getElementById('saveBtn').addEventListener('click', () => {
@@ -23,6 +25,7 @@ document.getElementById('saveBtn').addEventListener('click', () => {
   saveSettings({
     botToken:     fields.botToken.value.trim(),
     allowedUsers: users,
+    freeApiKey:   fields.freeApiKey.checked,
   });
   const ok = document.getElementById('saveOk');
   ok.style.display = 'inline';

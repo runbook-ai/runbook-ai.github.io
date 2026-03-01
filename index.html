@@ -3,362 +3,275 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Runbook AI</title>
+  <title>Runbook AI — AI Agent for Autonomous Web Tasks</title>
+  <meta name="description" content="Runbook AI is a local-first, privacy-first AI agent that runs entirely in your browser. Automate web tasks with your chosen LLM." />
   <style>
-    *, *::before, *::after {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --indigo: #6366f1;
+      --indigo-dark: #4f46e5;
+      --indigo-light: #e0e7ff;
+      --text: #1a1a2e;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --bg: #f5f7fa;
+      --white: #ffffff;
     }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: #f5f7fa;
-      color: #1a1a2e;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 48px 16px;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
     }
 
-    header {
-      text-align: center;
-      margin-bottom: 40px;
-    }
+    a { color: var(--indigo); text-decoration: none; }
+    a:hover { text-decoration: underline; }
 
-    header h1 {
-      font-size: 2rem;
-      font-weight: 700;
-      color: #1a1a2e;
-      letter-spacing: -0.5px;
-    }
-
-    header p {
-      margin-top: 8px;
-      font-size: 1rem;
-      color: #6b7280;
-      max-width: 560px;
-    }
-
-    .card {
-      background: #ffffff;
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      padding: 32px;
-      width: 100%;
-      max-width: 820px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-    }
-
-    .field {
-      margin-bottom: 20px;
-    }
-
-    .label {
-      display: block;
-      font-size: 0.8125rem;
-      font-weight: 500;
-      color: #6b7280;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 6px;
-    }
-
-    select {
-      width: 100%;
-      padding: 10px 14px;
-      border: 1px solid #d1d5db;
-      border-radius: 8px;
-      font-family: inherit;
-      font-size: 0.9375rem;
-      color: #374151;
-      background: #f9fafb;
-      outline: none;
-      cursor: pointer;
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
-
-    select:focus {
-      border-color: #6366f1;
-      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-      background: #ffffff;
-    }
-
-    textarea {
-      width: 100%;
-      padding: 14px 16px;
-      border: 1px solid #d1d5db;
-      border-radius: 8px;
-      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      font-size: 0.875rem;
-      line-height: 1.65;
-      color: #374151;
-      background: #f9fafb;
-      resize: vertical;
-      transition: border-color 0.15s, box-shadow 0.15s;
-      outline: none;
-    }
-
-    textarea:focus {
-      border-color: #6366f1;
-      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-      background: #ffffff;
-    }
-
-    #promptArea  { height: 240px; }
-    #configArea  { height: 100px; }
-
-    .actions {
-      margin-top: 20px;
+    /* Nav */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
       display: flex;
       align-items: center;
-      gap: 14px;
-      flex-wrap: wrap;
+      justify-content: space-between;
+      height: 56px;
     }
+    .nav-logo { font-size: 1rem; font-weight: 700; color: var(--text); text-decoration: none; letter-spacing: -0.3px; }
+    .nav-links { display: flex; align-items: center; gap: 24px; list-style: none; }
+    .nav-links a { font-size: 0.875rem; color: var(--muted); font-weight: 500; }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
 
-    button#runBtn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 24px;
-      background: #6366f1;
-      color: #ffffff;
-      font-size: 0.9375rem;
-      font-weight: 600;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 20px; border-radius: 8px;
+      font-size: 0.9rem; font-weight: 600; cursor: pointer;
       transition: background 0.15s, transform 0.1s;
-      white-space: nowrap;
-    }
-
-    button#runBtn:hover  { background: #4f46e5; }
-    button#runBtn:active { transform: scale(0.97); }
-    button#runBtn:disabled {
-      background: #a5b4fc;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    .run-hint {
-      font-size: 0.8125rem;
-      color: #9ca3af;
-      font-style: italic;
-    }
-
-    #status              { font-size: 0.875rem; color: #6b7280; }
-    #status.success      { color: #059669; }
-    #status.error        { color: #dc2626; }
-
-    footer {
-      margin-top: 40px;
-      font-size: 0.8125rem;
-      color: #9ca3af;
-      text-align: center;
-    }
-
-    footer a { color: #6366f1; text-decoration: none; }
-    footer a:hover { text-decoration: underline; }
-
-    .pr-banner {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 14px;
-      padding: 8px 18px;
-      background: #f6f8fa;
-      border: 1px solid #d0d7de;
-      border-radius: 20px;
-      font-size: 0.875rem;
-      color: #24292f;
-      text-decoration: none;
-      transition: background 0.15s, border-color 0.15s;
-    }
-    .pr-banner:hover {
-      background: #eaeef2;
-      border-color: #b0b7be;
       text-decoration: none;
     }
-    .pr-banner svg {
-      flex-shrink: 0;
+    .btn-primary { background: var(--indigo); color: #fff; border: none; }
+    .btn-primary:hover { background: var(--indigo-dark); text-decoration: none; }
+    .btn-outline { background: transparent; color: var(--indigo); border: 1.5px solid var(--indigo); }
+    .btn-outline:hover { background: var(--indigo-light); text-decoration: none; }
+
+    /* Hero */
+    .hero { text-align: center; padding: 48px 24px 60px; max-width: 760px; margin: 0 auto; }
+    .hero-badge {
+      display: inline-block; background: var(--indigo-light); color: var(--indigo-dark);
+      font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+      padding: 4px 12px; border-radius: 20px; margin-bottom: 20px;
     }
-    .banner-links {
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-      flex-wrap: wrap;
-      margin-top: 14px;
+    .hero h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; letter-spacing: -1px; line-height: 1.15; }
+    .hero h1 span { color: var(--indigo); }
+    .hero p { margin-top: 20px; font-size: 1.125rem; color: var(--muted); max-width: 600px; margin-left: auto; margin-right: auto; }
+    .hero-actions { display: flex; justify-content: center; gap: 12px; margin-top: 32px; flex-wrap: wrap; }
+
+    /* Video */
+    .video-section { max-width: 820px; margin: 0 auto 72px; padding: 0 24px; }
+    .video-wrapper {
+      position: relative; padding-bottom: 56.25%; height: 0;
+      border-radius: 14px; overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12); border: 1px solid var(--border);
     }
-    .banner-links .pr-banner {
-      margin-top: 0;
+    .video-wrapper iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+
+    /* Pillars */
+    .pillars { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; max-width: 820px; margin: 0 auto 72px; padding: 0 24px; }
+    .pillar {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--white); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 18px; font-size: 0.875rem; font-weight: 500;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    }
+
+    /* Components */
+    .section { max-width: 900px; margin: 0 auto 80px; padding: 0 24px; }
+    .section-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--indigo); margin-bottom: 10px; }
+    .section h2 { font-size: clamp(1.4rem, 3vw, 1.9rem); font-weight: 800; letter-spacing: -0.5px; margin-bottom: 12px; }
+    .section > p { font-size: 1rem; color: var(--muted); max-width: 640px; margin-bottom: 40px; }
+
+    .components-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+    .component-card {
+      background: var(--white); border: 1px solid var(--border); border-radius: 12px;
+      padding: 28px 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      transition: box-shadow 0.2s, transform 0.2s;
+    }
+    .component-card:hover { box-shadow: 0 6px 20px rgba(99,102,241,0.12); transform: translateY(-2px); }
+    .component-icon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; margin-bottom: 16px; }
+    .component-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 8px; }
+    .component-card p { font-size: 0.875rem; color: var(--muted); line-height: 1.55; }
+    .component-card .card-link { display: inline-block; margin-top: 14px; font-size: 0.8125rem; font-weight: 600; color: var(--indigo); }
+
+    /* CTA */
+    .cta-section { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: #fff; text-align: center; padding: 72px 24px; }
+    .cta-section h2 { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; letter-spacing: -0.5px; margin-bottom: 14px; }
+    .cta-section p { font-size: 1rem; opacity: 0.85; max-width: 520px; margin: 0 auto 32px; }
+    .cta-actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+    .btn-white { background: #fff; color: var(--indigo-dark); border: none; }
+    .btn-white:hover { background: #f0f0ff; text-decoration: none; }
+    .btn-ghost-white { background: transparent; color: #fff; border: 1.5px solid rgba(255,255,255,0.6); }
+    .btn-ghost-white:hover { background: rgba(255,255,255,0.1); text-decoration: none; }
+
+    /* Footer */
+    footer { background: var(--white); border-top: 1px solid var(--border); padding: 28px 24px; text-align: center; font-size: 0.8125rem; color: var(--muted); }
+    footer a { color: var(--muted); }
+    footer a:hover { color: var(--indigo); text-decoration: none; }
+
+    .divider { border: none; border-top: 1px solid var(--border); max-width: 900px; margin: 0 auto 72px; }
+
+    /* Why section */
+    .why-section { max-width: 760px; margin: 0 auto 80px; padding: 0 24px; }
+    .why-section .section-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--indigo); margin-bottom: 10px; }
+    .why-section h2 { font-size: clamp(1.4rem, 3vw, 1.9rem); font-weight: 800; letter-spacing: -0.5px; margin-bottom: 20px; }
+    .why-section > p { font-size: 1rem; color: var(--muted); line-height: 1.7; margin-bottom: 16px; }
+    .why-callout {
+      background: var(--indigo-light); border-left: 4px solid var(--indigo);
+      border-radius: 0 10px 10px 0; padding: 16px 20px; margin: 24px 0 32px;
+      font-size: 0.9375rem; color: var(--text); line-height: 1.65;
+    }
+    .why-callout strong { color: var(--indigo-dark); }
+    .key-features { list-style: none; display: flex; flex-direction: column; gap: 16px; margin-top: 8px; }
+    .key-features li {
+      display: flex; gap: 14px; align-items: flex-start;
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px 18px;
+      font-size: 0.9375rem; line-height: 1.6;
+    }
+    .key-features li .kf-icon { font-size: 1.25rem; flex-shrink: 0; margin-top: 1px; }
+    .key-features li strong { display: block; font-size: 0.9375rem; color: var(--text); margin-bottom: 3px; }
+    .key-features li span { color: var(--muted); }
+
+    @media (max-width: 480px) {
+      .nav-links { display: none; }
+      .hero { padding: 56px 16px 40px; }
     }
   </style>
 </head>
 <body>
 
-  <header>
-    <h1>Runbook AI</h1>
-    <p>Runbooks for the <a href="https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj" target="_blank">Runbook AI Chrome extension</a> — your AI agent for autonomous web tasks.</p>
-    <div class="banner-links">
-      <a class="pr-banner" href="https://github.com/runbook-ai/runbook-ai.github.io" target="_blank">
-        <svg width="18" height="18" viewBox="0 0 16 16" fill="#24292f" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        Want to share your runbook? Send a PR
-      </a>
-      <a class="pr-banner" href="https://discord.gg/SDtXkAKK2B" target="_blank">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="#5865F2" aria-hidden="true"><path d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026 13.83 13.83 0 0 0 1.226-1.963.074.074 0 0 0-.041-.104 13.175 13.175 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z"/></svg>
-        Join Discord
-      </a>
+  <nav>
+    <a class="nav-logo" href="/">Runbook AI</a>
+    <ul class="nav-links">
+      <li><a href="/runbooks/">Runbooks</a></li>
+      <li><a href="/bot/">Messaging Bot</a></li>
+      <li><a href="https://github.com/runbook-ai/runbook-ai-mcp" target="_blank">MCP Server</a></li>
+      <li><a href="https://discord.gg/SDtXkAKK2B" target="_blank">Discord</a></li>
+      <li><a href="https://github.com/runbook-ai" target="_blank">GitHub</a></li>
+    </ul>
+    <a class="btn btn-primary" href="https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj" target="_blank">Install Extension</a>
+  </nav>
+
+  <section class="hero">
+    <div class="hero-badge">Local-first &bull; Privacy-first &bull; Token-efficient &bull; Open source</div>
+    <h1>Your AI agent for<br><span>autonomous web tasks</span></h1>
+    <p>Runbook AI is a Chrome extension that lets you assign any web-based task to an AI agent and watch it carry out browser actions in real time — entirely in your browser, with your chosen LLM.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj" target="_blank">Install for Chrome</a>
+      <a class="btn btn-outline" href="/runbooks/">Browse Runbooks</a>
+      <a class="btn btn-outline" href="https://discord.gg/SDtXkAKK2B" target="_blank">Join Discord</a>
     </div>
-  </header>
+  </section>
 
-  <div class="card">
-
-    <div class="field">
-      <label class="label" for="runbookSelect">Select a Runbook</label>
-      <select id="runbookSelect">
-        <option value="">-- Choose a runbook --</option>
-        <option value="craigslist-car-listings">Find Craigslist Car Listings</option>
-      </select>
+  <div class="video-section">
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/dxtUFrOE4vw"
+        title="Runbook AI demo"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
     </div>
-
-    <div class="field">
-      <label class="label" for="promptArea">Prompt</label>
-      <textarea id="promptArea" placeholder="Select a runbook above to load its prompt…"></textarea>
-    </div>
-
-    <div class="field">
-      <label class="label" for="configArea">Config (JSON)</label>
-      <textarea id="configArea" placeholder="Select a runbook above to load its config…"></textarea>
-    </div>
-
-    <div class="actions">
-      <button id="runBtn" disabled>▶ Run</button>
-      <span class="run-hint">When clicked, this runbook will be executed by the Runbook AI extension. You can also copy the prompt and paste it into the extension sidepanel input, then press Enter to run.</span>
-      <span id="status"></span>
-    </div>
-
   </div>
 
+  <hr class="divider" />
+
+  <section class="why-section">
+    <div class="section-label">Why Runbook AI?</div>
+    <h2>Why build something new?</h2>
+    <p>There are other browser-based MCP tools out there (like <code style="font-size:0.875rem;background:#f3f4f6;padding:1px 5px;border-radius:4px;">chrome-devtools-mcp</code>), but they usually blow up your LLM context window by sending the entire DOM after every browser action.</p>
+    <div class="why-callout">
+      Runbook AI generates a <strong>highly optimized, simplified version of the HTML</strong>. It strips the junk but keeps the essential text and interaction elements — condensed, fast, and token-efficient. The simplified HTML also goes beyond the viewport, so scrolling is far more efficient.
+    </div>
+    <p style="font-size:0.8125rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;">Key features</p>
+    <ul class="key-features">
+      <li>
+        <span class="kf-icon">🌐</span>
+        <div><strong>The Ultimate Catch-all</strong><span>If a site doesn't have a dedicated MCP server, Runbook AI fills the gap perfectly — any page, any task.</span></div>
+      </li>
+      <li>
+        <span class="kf-icon">🔒</span>
+        <div><strong>Privacy First</strong><span>Runs entirely in your browser. No remote calls except to your chosen LLM provider. No <code style="font-size:0.8125rem;background:#f3f4f6;padding:1px 4px;border-radius:3px;">eval()</code> or shady scripts — enforced by the Chrome extension sandbox.</span></div>
+      </li>
+      <li>
+        <span class="kf-icon">⚡</span>
+        <div><strong>Terminal Power</strong><span>With the MCP bridge, call your browser as a tool directly from Claude Code or any agent that supports MCP servers.</span></div>
+      </li>
+    </ul>
+  </section>
+
+  <hr class="divider" />
+
+  <section class="section">
+    <div class="section-label">What's included</div>
+    <h2>Everything you need to automate the web</h2>
+    <p>Runbook AI is more than just an extension — it's a full ecosystem for creating, sharing, and running AI-powered web automation.</p>
+
+    <div class="components-grid">
+
+      <div class="component-card">
+        <div class="component-icon" style="background:#e0e7ff;">🧩</div>
+        <h3>Chrome Extension</h3>
+        <p>The core AI agent. Assign any task in plain English and watch it navigate, click, fill forms, and extract data — all in your active browser, with zero data leaving your machine except to your LLM.</p>
+        <a class="card-link" href="https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj" target="_blank">Install →</a>
+      </div>
+
+      <div class="component-card">
+        <div class="component-icon" style="background:#d1fae5;">📋</div>
+        <h3>Runbook Share &amp; Run</h3>
+        <p>Discover community-contributed runbooks for common tasks. Each runbook is a reusable, shareable prompt + config pair. Run them with one click directly from your browser.</p>
+        <a class="card-link" href="/runbooks/">Browse runbooks →</a>
+      </div>
+
+      <div class="component-card">
+        <div class="component-icon" style="background:#ede9fe;">🤖</div>
+        <h3>Messaging Bot</h3>
+        <p>Run runbooks and issue tasks to the Runbook AI extension from anywhere — send a message to your personal bot. Great for triggering automations on the go. Currently supports Discord, with more platforms coming.</p>
+        <a class="card-link" href="/bot/">Set up the bot →</a>
+      </div>
+
+      <div class="component-card">
+        <div class="component-icon" style="background:#fef3c7;">🔌</div>
+        <h3>MCP Server</h3>
+        <p>Invoke Runbook AI from Claude Code, Gemini CLI, and other MCP-compatible clients. The <code style="font-size:0.8rem;background:#f3f4f6;padding:1px 5px;border-radius:4px;">runbook-ai-mcp</code> package bridges AI coding tools to your browser agent.</p>
+        <a class="card-link" href="https://github.com/runbook-ai/runbook-ai-mcp" target="_blank">View on GitHub →</a>
+      </div>
+
+      <div class="component-card" style="opacity:0.72;">
+        <div class="component-icon" style="background:#fce7f3;">🧠</div>
+        <h3>Browser Automation LLM</h3>
+        <p>A custom LLM fine-tuned specifically for browser automation tasks — faster, cheaper, and more reliable than general-purpose models for navigating, clicking, and extracting data from the web.</p>
+        <span class="card-link" style="color:#7c3aed;cursor:default;">Coming soon</span>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="cta-section">
+    <h2>Start automating in minutes</h2>
+    <p>Install the extension, point it at your LLM, and assign your first task. No account required.</p>
+  </section>
+
   <footer>
-    Powered by <a href="https://github.com/runbook-ai" target="_blank">Runbook AI</a> &mdash;
-    <a href="https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj" target="_blank">Install Chrome Extension</a> &mdash;
-    <a href="about/privacy-policy.html">Privacy Policy</a> &mdash;
-    <a href="about/terms-of-service.html">Terms of Service</a>
+    &copy; Runbook AI &mdash; open source &amp; community driven. &nbsp;&middot;&nbsp;
+    <a href="/about/privacy-policy.html">Privacy Policy</a> &middot;
+    <a href="/about/terms-of-service.html">Terms of Service</a>
   </footer>
-
-  <script>
-    const EXTENSION_ID = "kjbhngehjkiiecaflccjenmoccielojj";
-
-    const runbookSelect = document.getElementById("runbookSelect");
-    const promptArea    = document.getElementById("promptArea");
-    const configArea    = document.getElementById("configArea");
-    const runBtn        = document.getElementById("runBtn");
-    const status        = document.getElementById("status");
-
-    runbookSelect.addEventListener("change", async () => {
-      const name = runbookSelect.value;
-      status.textContent = "";
-      status.className = "";
-
-      if (!name) {
-        promptArea.value = "";
-        configArea.value = "";
-        runBtn.disabled = true;
-        return;
-      }
-
-      try {
-        const [mdRes, jsonRes] = await Promise.all([
-          fetch(`runbooks/${name}.md`),
-          fetch(`runbooks/${name}.json`),
-        ]);
-        promptArea.value = mdRes.ok   ? await mdRes.text()   : "(Failed to load prompt)";
-        configArea.value = jsonRes.ok ? await jsonRes.text() : "{}";
-        runBtn.disabled = false;
-      } catch (err) {
-        console.error(err);
-        promptArea.value = "";
-        configArea.value = "";
-        status.textContent = "Failed to load runbook files.";
-        status.className = "error";
-        runBtn.disabled = true;
-      }
-    });
-
-    async function startRunbook(prompt, config) {
-      const openResp = await chrome.runtime.sendMessage(EXTENSION_ID, {
-        action: "openSidePanel"
-      });
-      if (openResp?.error) {
-        return openResp;
-      }
-      await new Promise(resolve => setTimeout(resolve, 500));
-      const setConfigResp = await chrome.runtime.sendMessage(EXTENSION_ID, {
-        action: "setRemoteConfig",
-        args: { config }
-      });
-      if (setConfigResp?.error) {
-        return setConfigResp;
-      }
-      chrome.runtime.sendMessage(EXTENSION_ID, {
-        action: "runHeadlessTask",
-        args: { prompt }
-      });
-      return {
-        message: "Runbook started successfully."
-      }
-    }
-
-    runBtn.addEventListener("click", async () => {
-      const prompt = promptArea.value.trim();
-
-      if (!prompt) {
-        status.textContent = "Prompt is empty.";
-        status.className = "error";
-        return;
-      }
-
-      let config = {};
-      try {
-        config = JSON.parse(configArea.value || "{}");
-      } catch (e) {
-        status.textContent = "Config JSON is invalid.";
-        status.className = "error";
-        return;
-      }
-
-      runBtn.disabled = true;
-      status.textContent = "Starting runbook…";
-      status.className = "";
-
-      try {
-        const result = await startRunbook(prompt, config);
-        if (result?.error) {
-          status.textContent = result.message || result.error;
-          status.className = "error";
-        } else {
-          status.textContent = result?.message ?? "Runbook started successfully.";
-          status.className = "success";
-        }
-      } catch (err) {
-        console.error(err);
-        status.textContent = "Failed to start runbook. Make sure the Runbook AI extension is installed and enabled.";
-        status.className = "error";
-      } finally {
-        runBtn.disabled = false;
-      }
-    });
-
-    // Auto-load runbook from URL param ?runbook=...
-    const urlRunbook = new URLSearchParams(window.location.search).get("runbook");
-    if (urlRunbook) {
-      runbookSelect.value = urlRunbook;
-      if (runbookSelect.value === urlRunbook) {
-        runbookSelect.dispatchEvent(new Event("change"));
-      }
-    }
-  </script>
 
 </body>
 </html>

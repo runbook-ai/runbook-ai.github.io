@@ -63,7 +63,7 @@ export function logMessage(msg, direction) {
   el.className = `log-entry ${direction}`;
   const chBadge    = `<span class="ch-badge">#${escHtml(msg.channel_id)}</span>`;
   const authorCls  = direction === 'outgoing' ? 'bot' : 'user';
-  const authorName = direction === 'outgoing' ? 'Agent' : escHtml(msg.author?.username ?? 'unknown');
+  const authorName = direction === 'outgoing' ? 'Bot' : escHtml(msg.author?.username ?? 'unknown');
   el.innerHTML =
     `<div class="log-meta">${chBadge}` +
     `<span class="log-author ${authorCls}">${authorName}</span>` +
@@ -76,19 +76,19 @@ export function logMessage(msg, direction) {
 // Single floating "thinking" indicator - replaced on each new request.
 let processingEl = null;
 
-/** Show an animated "Agent thinking..." row in the log. */
+/** Show an animated "Bot thinking..." row in the log. */
 export function showProcessing(channelId) {
   hideProcessing();
   processingEl = document.createElement('div');
   processingEl.className = 'processing';
   processingEl.innerHTML =
     `<span class="ch-badge">#${escHtml(channelId)}</span>` +
-    `<span>Agent thinking</span>` +
+    `<span>Bot thinking</span>` +
     `<span class="dots"><span></span><span></span><span></span></span>`;
   appendLog(processingEl);
 }
 
-/** Remove the "Agent thinking..." indicator if present. */
+/** Remove the "Bot thinking..." indicator if present. */
 export function hideProcessing() {
   processingEl?.remove();
   processingEl = null;

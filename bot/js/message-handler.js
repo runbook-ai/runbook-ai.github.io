@@ -164,7 +164,16 @@ async function runViaExtension(msg, channelId, prompt, config, s) {
 
     const configResp = await chrome.runtime.sendMessage(EXTENSION_ID, {
       action: 'setRemoteConfig',
-      args:   { config: { ...config, returnTaskState: true } },
+      args:   {
+        config: {
+          ...config,
+          ...(s.freeApiKey ? {
+            llmBaseUrl: 'https://llm.runbookai.net/v1',
+            llmApiKey:  'free',
+          } : {}),
+          returnTaskState: true,
+        },
+      },
     });
     console.log('[ext] setRemoteConfig response:', configResp);
     if (configResp?.error) throw new ExtensionError(configResp.message || configResp.error);
@@ -179,16 +188,16 @@ async function runViaExtension(msg, channelId, prompt, config, s) {
       throw new Error(taskResp.message || taskResp.error);
     }
 
-    // Switch back to the agent tab so it stays active for the next task.
+    // Switch back to the bot tab so it stays active for the next task.
     // Match on origin+pathname prefix so trailing slashes / index.html variants all resolve.
-    const agentUrl = window.location.origin + window.location.pathname;
-    const agentTab = taskResp?.taskState?.tabs?.find(
-      t => t.url && (t.url === agentUrl || t.url.startsWith(agentUrl.replace(/\/[^/]*$/, '/')))
+    const botUrl = window.location.origin + window.location.pathname;
+    const botTab = taskResp?.taskState?.tabs?.find(
+      t => t.url && (t.url === botUrl || t.url.startsWith(botUrl.replace(/\/[^/]*$/, '/')))
     );
-    if (agentTab?.tabId != null) {
+    if (botTab?.tabId != null) {
       chrome.runtime.sendMessage(EXTENSION_ID, {
         action: 'switchToTab',
-        args:   { tabId: agentTab.tabId },
+        args:   { tabId: botTab.tabId },
       }).catch(() => {});
     }
 

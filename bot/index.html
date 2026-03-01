@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Runbook AI Agent</title>
+  <title>Messaging Bot — Runbook AI</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -16,24 +16,39 @@
       flex-direction: column;
     }
 
-    /* -- Header ----------------------------------------------- */
-    .app-header {
+    /* -- Nav ------------------------------------------------- */
+    .site-nav {
       position: sticky;
       top: 0;
-      z-index: 10;
-      background: #fff;
+      z-index: 100;
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(8px);
       border-bottom: 1px solid #e5e7eb;
-      padding: 12px 24px;
+      padding: 0 24px;
       display: flex;
       align-items: center;
-      gap: 12px;
+      justify-content: space-between;
+      height: 56px;
+      flex-shrink: 0;
     }
-
-    .app-title {
-      font-size: 1.0625rem;
+    .nav-logo {
+      font-size: 1rem;
       font-weight: 700;
       color: #1a1a2e;
+      text-decoration: none;
+      letter-spacing: -0.3px;
     }
+    .nav-logo:hover { color: #6366f1; }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      list-style: none;
+    }
+    .nav-links a { font-size: 0.875rem; color: #6b7280; font-weight: 500; text-decoration: none; }
+    .nav-links a:hover { color: #1a1a2e; }
+    .nav-right { display: flex; align-items: center; gap: 10px; }
+    @media (max-width: 480px) { .nav-links { display: none; } }
 
     .status-dot {
       width: 10px;
@@ -56,8 +71,6 @@
       font-size: 0.875rem;
       color: #6b7280;
     }
-
-    .spacer { flex: 1; }
 
     /* -- Buttons ----------------------------------------------- */
     .btn {
@@ -154,7 +167,8 @@
     }
 
     .field input,
-    .field textarea {
+    .field textarea,
+    .field select {
       width: 100%;
       padding: 9px 12px;
       border: 1px solid #d1d5db;
@@ -167,7 +181,8 @@
       transition: border-color 0.15s, box-shadow 0.15s;
     }
     .field input:focus,
-    .field textarea:focus {
+    .field textarea:focus,
+    .field select:focus {
       border-color: #6366f1;
       box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
       background: #fff;
@@ -191,6 +206,39 @@
     }
 
     .save-ok { font-size: 0.875rem; color: #059669; }
+
+    .free-api-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .free-api-row input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #6366f1;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .free-api-row label {
+      font-size: 0.875rem;
+      color: #374151;
+      cursor: pointer;
+      user-select: none;
+    }
+    .free-api-row .free-badge {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #059669;
+      background: #d1fae5;
+      border-radius: 4px;
+      padding: 1px 6px;
+    }
+    .free-api-row .free-hint {
+      font-size: 0.8125rem;
+      color: #9ca3af;
+      font-style: italic;
+    }
 
     /* -- Activity log ------------------------------------------ */
     .log-container {
@@ -281,30 +329,36 @@
       font-family: ui-monospace, "SFMono-Regular", monospace;
     }
 
-    footer {
+    .site-footer {
+      background: #fff;
+      border-top: 1px solid #e5e7eb;
+      padding: 28px 24px;
       text-align: center;
-      padding: 20px 16px;
       font-size: 0.8125rem;
       color: #9ca3af;
     }
-    footer a { color: #6366f1; text-decoration: none; }
-    footer a:hover { text-decoration: underline; }
+    .site-footer a { color: #6b7280; text-decoration: none; }
+    .site-footer a:hover { color: #6366f1; }
   </style>
 </head>
 <body>
 
-  <!-- -- Header -------------------------------------------------- -->
-  <header class="app-header">
-    <!-- Discord logo -->
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="#5865F2" aria-hidden="true">
-      <path d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026 13.83 13.83 0 0 0 1.226-1.963.074.074 0 0 0-.041-.104 13.175 13.175 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z"/>
-    </svg>
-    <span class="app-title">Discord</span>
-    <span class="status-dot" id="statusDot"></span>
-    <span class="status-text" id="statusText">Disconnected</span>
-    <span class="spacer"></span>
-    <button class="btn btn-primary" id="connectBtn">Connect</button>
-  </header>
+  <!-- -- Nav ---------------------------------------------------- -->
+  <nav class="site-nav">
+    <a class="nav-logo" href="/">Runbook AI</a>
+    <ul class="nav-links">
+      <li><a href="/runbooks/">Runbooks</a></li>
+      <li><a href="/bot/">Messaging Bot</a></li>
+      <li><a href="https://github.com/runbook-ai/runbook-ai-mcp" target="_blank">MCP Server</a></li>
+      <li><a href="https://discord.gg/SDtXkAKK2B" target="_blank">Discord</a></li>
+      <li><a href="https://github.com/runbook-ai" target="_blank">GitHub</a></li>
+    </ul>
+    <div class="nav-right">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="status-text" id="statusText">Disconnected</span>
+      <button class="btn btn-primary" id="connectBtn">Connect</button>
+    </div>
+  </nav>
 
   <div class="app-body">
 
@@ -324,11 +378,19 @@
         <div class="form-grid">
 
           <div class="field form-full">
+            <label for="messagingApp">Messaging App</label>
+            <select id="messagingApp">
+              <option value="discord">Discord</option>
+            </select>
+            <div class="field-hint">More platforms coming soon.</div>
+          </div>
+
+          <div class="field form-full">
             <label for="botToken">Bot Token</label>
-            <input type="password" id="botToken" placeholder="Bot your-token-here" autocomplete="off" spellcheck="false" />
+            <input type="password" id="botToken" placeholder="your-bot-token-here" autocomplete="off" spellcheck="false" />
             <div class="field-hint">
-              Your Discord bot token from <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">discord.com/developers</a>.
-              Under <em>Bot ? Privileged Gateway Intents</em>, enable <strong>Message Content Intent</strong>.
+              Your Discord bot token from <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">discord.com/developers/applications</a>.
+              Under <em>Bot - Privileged Gateway Intents</em>, enable <strong>Message Content Intent</strong>.
             </div>
           </div>
 
@@ -339,6 +401,12 @@
           </div>
 
 
+        </div>
+        <div class="free-api-row">
+          <input type="checkbox" id="freeApiCheckbox">
+          <label for="freeApiCheckbox">Use free API key</label>
+          <span class="free-badge">FREE</span>
+          <span class="free-hint">Rate limited — bring your own key for faster responses.</span>
         </div>
         <div class="form-actions">
           <button class="btn btn-primary" id="saveBtn">Save Settings</button>
@@ -365,8 +433,10 @@
 
   </div>
 
-  <footer>
-    <a href="/">? Back to Runbook AI</a>
+  <footer class="site-footer">
+    &copy; Runbook AI &mdash; open source &amp; community driven. &nbsp;&middot;&nbsp;
+    <a href="/about/privacy-policy.html">Privacy Policy</a> &middot;
+    <a href="/about/terms-of-service.html">Terms of Service</a>
   </footer>
 
   <script type="module" src="js/app.js"></script>
