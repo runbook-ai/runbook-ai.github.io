@@ -3,21 +3,57 @@
  *
  * Orchestrates the task queue:
  *   1. Accepts tasks from message-handler or cron
- *   2. Executes them serially via the Chrome extension
- *   3. Parses results for follow-up scheduling
- *   4. Manages task state transitions in IndexedDB
+ *   2. Executes them serially via the planner or direct extension call
+ *   3. Manages task state transitions in IndexedDB
+ *   4. Delegates delivery to a callback (no Discord-specific logic here)
  */
 
-import { loadSettings } from './settings.js';
 import {
   putTask, getTask, createTaskRecord,
   getTasksByStatus, getAllTasks, deleteTask,
+  getChildTasks, putMessageMapping,
 } from './task-store.js';
 import { computeNextRun, computeBackoff } from './cron.js';
-import { logMessage, logSystem, showProcessing, hideProcessing } from './ui.js';
-import { sendDiscordMessage, triggerTyping, addReaction } from './discord.js';
+import { showProcessing, hideProcessing } from './ui.js';
+import { runPlan } from './planner.js';
 
-const EXTENSION_ID = 'kjbhngehjkiiecaflccjenmoccielojj';
+// ── Delivery callback ──────────────────────────────────────────────────────
+
+// Set by the app layer to handle message delivery (Discord, etc.)
+let deliverFn = null;
+
+/**
+ * Register a delivery function: async (task, message) => sentMessage
+ * sentMessage should have an `id` property (e.g. Discord message ID).
+ */
+export function setDeliveryHandler(fn) {
+  deliverFn = fn;
+}
+
+/** Deliver a message for a task using the registered handler. */
+async function deliver(task, message) {
+  if (!deliverFn || !task.channelId) return null;
+  try {
+    const sent = await deliverFn(task, message);
+    // Record the sent message in the message map for reply-chain tracing
+    if (sent?.id) {
+      await putMessageMapping(sent.id, task.id);
+    }
+    return sent;
+  } catch (err) {
+    console.error('[task-manager] delivery failed:', err);
+    return null;
+  }
+}
+
+// ── Typing indicator callback ──────────────────────────────────────────────
+
+let typingFn = null;
+
+/** Register a typing indicator function: (task) => void */
+export function setTypingHandler(fn) {
+  typingFn = fn;
+}
 
 // ── Serial queue ────────────────────────────────────────────────────────────
 
@@ -36,7 +72,7 @@ export async function enqueueTask(task) {
   if (!running) drainQueue();
 }
 
-/** Create and enqueue a new task from a Discord message. */
+/** Create and enqueue a new task from a user message. */
 export async function createAndEnqueue({ prompt, config, channelId, replyToId, createdBy, schedule }) {
   const task = createTaskRecord({
     prompt,
@@ -76,8 +112,6 @@ async function drainQueue() {
 // ── Execution ───────────────────────────────────────────────────────────────
 
 async function executeTask(task) {
-  const s = loadSettings();
-
   task.status    = 'running';
   task.lastRunAt = Date.now();
   task.runCount += 1;
@@ -85,83 +119,31 @@ async function executeTask(task) {
 
   if (task.channelId) {
     showProcessing(task.channelId);
-    triggerTyping(task.channelId, s.botToken);
+    if (typingFn) typingFn(task);
   }
 
-  class ExtensionError extends Error {}
-
   try {
-    if (typeof chrome === 'undefined' || !chrome.runtime) {
-      throw new ExtensionError('Runbook AI extension is not available on this page');
-    }
-
-    const openResp = await chrome.runtime.sendMessage(EXTENSION_ID, { action: 'openSidePanel' });
-    if (openResp?.error) throw new ExtensionError(openResp.message || openResp.error);
-
-    await new Promise(r => setTimeout(r, 500));
-
-    // Build the prompt with injected context from prior runs
-    const fullPrompt = buildPrompt(task);
-
-    const configResp = await chrome.runtime.sendMessage(EXTENSION_ID, {
-      action: 'setRemoteConfig',
-      args: {
-        config: {
-          ...task.config,
-          ...(s.freeApiKey ? {
-            llmBaseUrl: 'https://llm.runbookai.net/v1',
-            llmApiKey:  'free',
-          } : {}),
-          returnTaskState: true,
-        },
-      },
-    });
-    if (configResp?.error) throw new ExtensionError(configResp.message || configResp.error);
-
-    const taskResp = await chrome.runtime.sendMessage(EXTENSION_ID, {
-      action: 'runHeadlessTask',
-      args: { prompt: fullPrompt },
+    // Run through the planner
+    const planResult = await runPlan(task, async (message) => {
+      // onNotify callback — deliver progress updates
+      await deliver(task, message);
     });
 
-    if (taskResp?.error) throw new Error(taskResp.message || taskResp.error);
-
-    // Switch back to bot tab
-    const botUrl = document.location.href;
-    const botTab = taskResp?.taskState?.tabs?.find(t => t.url && t.url === botUrl);
-    if (botTab?.tabId != null) {
-      chrome.runtime.sendMessage(EXTENSION_ID, {
-        action: 'switchToTab',
-        args: { tabId: botTab.tabId },
-      }).catch(() => {});
-    }
-
-    const rawResult = taskResp?.taskResult?.result || 'Task completed with no result.';
-
-    // Try to parse structured result
-    const parsed = parseResult(rawResult);
-
-    task.result            = parsed.result || rawResult;
+    task.result            = planResult.result || 'Task completed with no result.';
     task.consecutiveErrors = 0;
     task.lastError         = null;
 
-    // Merge memory from this run into persistent context
-    if (parsed.memory && typeof parsed.memory === 'object') {
-      task.context = { ...task.context, ...parsed.memory };
-    }
-
-    // Handle follow-up task creation
-    if (parsed.followUp) {
-      await handleFollowUp(task, parsed.followUp);
+    // Merge memory from the plan into persistent context
+    if (planResult.memory && typeof planResult.memory === 'object') {
+      task.context = { ...task.context, ...planResult.memory };
     }
 
     // Decide next state
     if (task.schedule) {
-      // Recurring task: compute next run and go to 'waiting'
       if (task.maxRuns && task.runCount >= task.maxRuns) {
         task.status    = 'completed';
         task.nextRunAt = null;
       } else if (task.schedule.type === 'at') {
-        // One-shot scheduled task — done
         task.status    = 'completed';
         task.nextRunAt = null;
       } else {
@@ -174,11 +156,9 @@ async function executeTask(task) {
     }
     await putTask(task);
 
-    // Deliver result to Discord
+    // Deliver final result
     if (task.delivery !== 'silent' && task.channelId) {
-      const reply = task.result;
-      await sendDiscordMessage(task.channelId, reply, s.botToken, task.replyToId);
-      logMessage({ channel_id: task.channelId, content: reply }, 'outgoing');
+      await deliver(task, task.result);
     }
 
   } catch (err) {
@@ -188,7 +168,6 @@ async function executeTask(task) {
     task.lastError = err?.message ?? String(err);
 
     if (task.schedule && task.consecutiveErrors < 5) {
-      // Retry with backoff
       task.status    = 'waiting';
       task.nextRunAt = Date.now() + computeBackoff(task.consecutiveErrors);
     } else {
@@ -196,87 +175,46 @@ async function executeTask(task) {
     }
     await putTask(task);
 
-    // Notify Discord of error
+    // Notify user of error
     if (task.channelId) {
-      const isExtErr = err instanceof ExtensionError;
+      const isExtErr = err?.message?.includes('extension');
       const notice = isExtErr
         ? `Extension error: ${task.lastError}\n\nMake sure the Runbook AI extension side panel is opened.`
         : `Error: ${task.lastError}`;
-      await sendDiscordMessage(task.channelId, notice, s.botToken, task.replyToId).catch(() => {});
-      logMessage({ channel_id: task.channelId, content: notice }, 'outgoing');
+      await deliver(task, notice);
     }
   } finally {
     hideProcessing();
   }
 }
 
-// ── Prompt building ─────────────────────────────────────────────────────────
-
-function buildPrompt(task) {
-  let prompt = task.prompt;
-
-  // Inject context from prior runs if any
-  if (task.context && Object.keys(task.context).length > 0) {
-    prompt += '\n\n---TASK CONTEXT (from prior runs)---\n';
-    prompt += JSON.stringify(task.context, null, 2);
-    prompt += '\n---END TASK CONTEXT---';
-  }
-
-  // Instruct the agent to structure its output
-  if (task.schedule || task.parentId) {
-    prompt += '\n\n---OUTPUT FORMAT---\n';
-    prompt += 'When done, structure your final result as JSON with these fields:\n';
-    prompt += '- "result": string — your findings or actions taken (this is shown to the user)\n';
-    prompt += '- "memory": object — key data to persist for the next run (e.g. listings found, emails sent)\n';
-    prompt += '- "followUp": { "prompt": string, "schedule": { "type": "every", "intervalMs": number } } — optional, to schedule a follow-up task\n';
-    prompt += 'If you cannot structure as JSON, just return your result as plain text.\n';
-    prompt += '---END OUTPUT FORMAT---';
-  }
-
-  return prompt;
-}
-
-// ── Result parsing ──────────────────────────────────────────────────────────
-
-function parseResult(raw) {
-  // Try to extract JSON from the result (may be wrapped in markdown code block)
-  const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) || raw.match(/^(\{[\s\S]*\})$/);
-  if (jsonMatch) {
-    try {
-      return JSON.parse(jsonMatch[1].trim());
-    } catch { /* fall through */ }
-  }
-  // Try raw parse
-  try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed === 'object' && parsed !== null) return parsed;
-  } catch { /* fall through */ }
-  return { result: raw };
-}
-
 // ── Follow-up handling ──────────────────────────────────────────────────────
 
-async function handleFollowUp(parentTask, followUp) {
-  const childTask = createTaskRecord({
-    parentId:  parentTask.id,
-    prompt:    followUp.prompt,
-    config:    parentTask.config,
-    context:   { ...parentTask.context },
-    schedule:  followUp.schedule ?? null,
-    nextRunAt: followUp.schedule ? computeNextRun(followUp.schedule) : null,
-    status:    followUp.schedule ? 'waiting' : 'queued',
-    channelId: parentTask.channelId,
-    replyToId: parentTask.replyToId,
-    delivery:  followUp.delivery ?? parentTask.delivery,
-    createdBy: parentTask.createdBy,
-  });
-  await putTask(childTask);
+/**
+ * Apply a user follow-up message to an existing task.
+ * Updates the task context and propagates to child cron tasks.
+ */
+export async function applyFollowUp(taskId, userMessage) {
+  const task = await getTask(taskId);
+  if (!task) return null;
 
-  if (childTask.status === 'queued') {
-    readyQueue.push(childTask.id);
+  task.context.userUpdates = task.context.userUpdates || [];
+  task.context.userUpdates.push({
+    message: userMessage,
+    timestamp: Date.now(),
+  });
+  await putTask(task);
+
+  // Propagate to active child tasks
+  const children = await getChildTasks(taskId);
+  for (const child of children) {
+    if (child.status === 'waiting' || child.status === 'queued' || child.status === 'paused') {
+      child.context.userUpdates = task.context.userUpdates;
+      await putTask(child);
+    }
   }
 
-  console.log('[task-manager] created follow-up task', childTask.id, 'from', parentTask.id);
+  return task;
 }
 
 // ── Public API for commands ─────────────────────────────────────────────────

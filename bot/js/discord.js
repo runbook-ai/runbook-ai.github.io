@@ -28,6 +28,22 @@ export async function discordPost(path, body, token) {
 }
 
 /**
+ * GET from a Discord REST endpoint.
+ * Returns the parsed JSON or throws on non-2xx.
+ */
+export async function discordGet(path, token) {
+  const resp = await proxyFetch(`${DISCORD_API}${path}`, {
+    method:  'GET',
+    headers: { 'Authorization': `Bot ${token}` },
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => String(resp.status));
+    throw new Error(`Discord API ${resp.status}: ${text}`);
+  }
+  return resp.json();
+}
+
+/**
  * Ensure a DM channel is open with the given user; returns the channel ID.
  * Safe to call even if the channel already exists — Discord returns the existing one.
  */
@@ -52,19 +68,23 @@ export async function openDMChannel(userId, token) {
  * Send a message to a Discord channel.
  * Splits content into <=1990-char chunks to stay under Discord's 2000-char limit.
  * If replyToId is given, the first chunk is sent as a reply to that message.
+ * Returns the last sent message object (for recording in message map).
  */
 export async function sendDiscordMessage(channelId, content, token, replyToId = null) {
   const chunks = [];
   for (let i = 0; i < content.length; i += 1990) {
     chunks.push(content.slice(i, i + 1990));
   }
+  let lastMsg = null;
   for (let i = 0; i < chunks.length; i++) {
     const body = { content: chunks[i] };
     if (i === 0 && replyToId) {
       body.message_reference = { message_id: replyToId };
     }
-    await discordPost(`/channels/${channelId}/messages`, body, token);
+    const resp = await discordPost(`/channels/${channelId}/messages`, body, token);
+    lastMsg = await resp.json().catch(() => null);
   }
+  return lastMsg;
 }
 
 /**
@@ -87,4 +107,16 @@ export function triggerTyping(channelId, token) {
     method:  'POST',
     headers: { 'Authorization': `Bot ${token}` },
   }).catch(() => {});
+}
+
+/**
+ * Fetch a single Discord message by ID from a channel.
+ * Returns the message object or null if not found.
+ */
+export async function fetchDiscordMessage(channelId, messageId, token) {
+  try {
+    return await discordGet(`/channels/${channelId}/messages/${messageId}`, token);
+  } catch {
+    return null;
+  }
 }

@@ -1,7 +1,7 @@
 /**
  * IndexedDB-backed persistent task store.
  *
- * Schema:
+ * Schema (tasks store):
  *   id            - unique task ID (task_<random>)
  *   parentId      - parent task ID if spawned by another task (null for root)
  *   status        - queued | running | waiting | completed | failed | paused
@@ -22,11 +22,16 @@
  *   createdAt     - epoch ms
  *   updatedAt     - epoch ms
  *   createdBy     - Discord username
+ *
+ * Schema (messageMap store):
+ *   messageId     - Discord message ID (key)
+ *   taskId        - task ID this message belongs to
  */
 
 const DB_NAME    = 'runbookai_tasks';
-const DB_VERSION = 1;
-const STORE_NAME = 'tasks';
+const DB_VERSION = 2;
+const TASK_STORE = 'tasks';
+const MSG_STORE  = 'messageMap';
 
 let dbPromise = null;
 
@@ -34,13 +39,16 @@ function openDB() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (event) => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(TASK_STORE)) {
+        const store = db.createObjectStore(TASK_STORE, { keyPath: 'id' });
         store.createIndex('status', 'status', { unique: false });
         store.createIndex('nextRunAt', 'nextRunAt', { unique: false });
         store.createIndex('parentId', 'parentId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(MSG_STORE)) {
+        db.createObjectStore(MSG_STORE, { keyPath: 'messageId' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -49,12 +57,14 @@ function openDB() {
   return dbPromise;
 }
 
-function tx(mode) {
+function tx(storeName, mode) {
   return openDB().then(db => {
-    const t = db.transaction(STORE_NAME, mode);
-    return t.objectStore(STORE_NAME);
+    const t = db.transaction(storeName, mode);
+    return t.objectStore(storeName);
   });
 }
+
+// ── Task CRUD ──────────────────────────────────────────────────────────────
 
 export function generateId() {
   return 'task_' + crypto.randomUUID().slice(0, 12);
@@ -62,7 +72,7 @@ export function generateId() {
 
 export async function putTask(task) {
   task.updatedAt = Date.now();
-  const store = await tx('readwrite');
+  const store = await tx(TASK_STORE, 'readwrite');
   return new Promise((resolve, reject) => {
     const req = store.put(task);
     req.onsuccess = () => resolve(task);
@@ -71,7 +81,7 @@ export async function putTask(task) {
 }
 
 export async function getTask(id) {
-  const store = await tx('readonly');
+  const store = await tx(TASK_STORE, 'readonly');
   return new Promise((resolve, reject) => {
     const req = store.get(id);
     req.onsuccess = () => resolve(req.result ?? null);
@@ -80,7 +90,7 @@ export async function getTask(id) {
 }
 
 export async function deleteTask(id) {
-  const store = await tx('readwrite');
+  const store = await tx(TASK_STORE, 'readwrite');
   return new Promise((resolve, reject) => {
     const req = store.delete(id);
     req.onsuccess = () => resolve();
@@ -89,7 +99,7 @@ export async function deleteTask(id) {
 }
 
 export async function getAllTasks() {
-  const store = await tx('readonly');
+  const store = await tx(TASK_STORE, 'readonly');
   return new Promise((resolve, reject) => {
     const req = store.getAll();
     req.onsuccess = () => resolve(req.result);
@@ -99,7 +109,7 @@ export async function getAllTasks() {
 
 /** Get tasks by status. */
 export async function getTasksByStatus(status) {
-  const store = await tx('readonly');
+  const store = await tx(TASK_STORE, 'readonly');
   const index = store.index('status');
   return new Promise((resolve, reject) => {
     const req = index.getAll(status);
@@ -117,7 +127,7 @@ export async function getDueTasks() {
 
 /** Get child tasks of a given parent. */
 export async function getChildTasks(parentId) {
-  const store = await tx('readonly');
+  const store = await tx(TASK_STORE, 'readonly');
   const index = store.index('parentId');
   return new Promise((resolve, reject) => {
     const req = index.getAll(parentId);
@@ -152,4 +162,26 @@ export function createTaskRecord(overrides = {}) {
     createdBy:         null,
     ...overrides,
   };
+}
+
+// ── Message mapping ────────────────────────────────────────────────────────
+
+/** Record a Discord message ID → task ID mapping. */
+export async function putMessageMapping(messageId, taskId) {
+  const store = await tx(MSG_STORE, 'readwrite');
+  return new Promise((resolve, reject) => {
+    const req = store.put({ messageId, taskId });
+    req.onsuccess = () => resolve();
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+/** Look up the task ID for a Discord message ID. Returns { messageId, taskId } or null. */
+export async function getMessageMapping(messageId) {
+  const store = await tx(MSG_STORE, 'readonly');
+  return new Promise((resolve, reject) => {
+    const req = store.get(messageId);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror   = () => reject(req.error);
+  });
 }

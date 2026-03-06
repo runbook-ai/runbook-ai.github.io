@@ -1,7 +1,9 @@
 import { loadSettings, saveSettings } from './settings.js';
 import { gwConnect, gwDisconnect, gw } from './gateway.js';
 import { startCron } from './cron.js';
-import { enqueueTask, rehydrate } from './task-manager.js';
+import { enqueueTask, rehydrate, setDeliveryHandler, setTypingHandler } from './task-manager.js';
+import { sendDiscordMessage, triggerTyping } from './discord.js';
+import { logMessage } from './ui.js';
 
 // -- Settings form -------------------------------------------------------------
 
@@ -58,6 +60,23 @@ document.getElementById('connectBtn').addEventListener('click', () => {
     gw.stopped = false;
     gwConnect();
   }
+});
+
+// -- Delivery handler (Discord) ------------------------------------------------
+
+// Wire up Discord message delivery for the task manager.
+// This keeps all Discord-specific logic out of task-manager.js.
+setDeliveryHandler(async (task, message) => {
+  const s = loadSettings();
+  const sent = await sendDiscordMessage(task.channelId, message, s.botToken, task.replyToId);
+  logMessage({ channel_id: task.channelId, content: message }, 'outgoing');
+  return sent;
+});
+
+// Wire up typing indicator
+setTypingHandler((task) => {
+  const s = loadSettings();
+  triggerTyping(task.channelId, s.botToken);
 });
 
 // -- Task system initialization ------------------------------------------------

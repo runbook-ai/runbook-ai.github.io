@@ -1,10 +1,14 @@
 import { loadSettings, getAllowedUsers } from './settings.js';
 import { logMessage, logSystem } from './ui.js';
-import { sendDiscordMessage, addReaction, openDMChannel } from './discord.js';
+import {
+  sendDiscordMessage, addReaction, openDMChannel,
+  fetchDiscordMessage,
+} from './discord.js';
 import {
   createAndEnqueue, listTasks, cancelTask,
-  pauseTask, resumeTask, removeTask,
+  pauseTask, resumeTask, removeTask, applyFollowUp,
 } from './task-manager.js';
+import { putMessageMapping, getMessageMapping } from './task-store.js';
 
 // ── Interval parsing ────────────────────────────────────────────────────────
 
@@ -24,6 +28,32 @@ function formatMs(ms) {
   if (ms >= 3_600_000)   return (ms / 3_600_000).toFixed(1).replace(/\.0$/, '') + 'h';
   if (ms >= 60_000)      return (ms / 60_000).toFixed(1).replace(/\.0$/, '') + 'm';
   return (ms / 1000).toFixed(0) + 's';
+}
+
+// ── Reply-chain tracing ────────────────────────────────────────────────────
+
+/**
+ * Walk up the Discord reply chain to find the task ID this message belongs to.
+ * Returns the task ID or null if this is a new conversation.
+ */
+async function traceTaskFromReply(msg, token) {
+  let refId = msg.message_reference?.message_id;
+  const visited = new Set();
+
+  while (refId && !visited.has(refId)) {
+    visited.add(refId);
+
+    // Check if this message is mapped to a task
+    const mapping = await getMessageMapping(refId);
+    if (mapping) return mapping.taskId;
+
+    // Fetch the referenced message to continue the chain
+    const refMsg = await fetchDiscordMessage(msg.channel_id, refId, token);
+    if (!refMsg) break;
+    refId = refMsg.message_reference?.message_id;
+  }
+
+  return null;
 }
 
 // ── Message handling ────────────────────────────────────────────────────────
@@ -143,15 +173,48 @@ export async function handleMessageCreate(msg, botUserId) {
     return;
   }
 
-  // Free-form message — create and enqueue a one-shot task
+  // ── Free-form message ─────────────────────────────────────────────────
+
+  // Check if this is a reply to an existing task (follow-up)
+  if (msg.message_reference) {
+    const taskId = await traceTaskFromReply(msg, s.botToken);
+    if (taskId) {
+      await handleFollowUp(taskId, msg, channelId, s);
+      return;
+    }
+  }
+
+  // New task
   addReaction(channelId, msg.id, '%F0%9F%91%8D', s.botToken); // 👍
-  await createAndEnqueue({
+  const task = await createAndEnqueue({
     prompt:    content,
     config:    {},
     channelId,
     replyToId: msg.id,
     createdBy: msg.author?.username,
   });
+  // Record user's message → task mapping
+  await putMessageMapping(msg.id, task.id);
+}
+
+// ── Follow-up handler ────────────────────────────────────────────────────────
+
+async function handleFollowUp(taskId, msg, channelId, s) {
+  addReaction(channelId, msg.id, '%F0%9F%91%8D', s.botToken); // 👍
+
+  const task = await applyFollowUp(taskId, msg.content.trim());
+  if (!task) {
+    await sendDiscordMessage(channelId, 'Could not find the related task.', s.botToken, msg.id);
+    return;
+  }
+
+  // Record this message in the mapping
+  await putMessageMapping(msg.id, taskId);
+
+  const reply = `Got it — updated task \`${taskId}\`. Next run will use the new criteria.`;
+  const sent = await sendDiscordMessage(channelId, reply, s.botToken, msg.id);
+  if (sent?.id) await putMessageMapping(sent.id, taskId);
+  logMessage({ channel_id: channelId, content: reply }, 'outgoing');
 }
 
 // ── Command handlers ────────────────────────────────────────────────────────
@@ -171,13 +234,14 @@ async function handleRunCommand(msg, channelId, runbookName, extraPrompt, s) {
     const config = jsonRes.ok ? JSON.parse(await jsonRes.text()) : {};
 
     addReaction(channelId, msg.id, '%F0%9F%91%8D', s.botToken);
-    await createAndEnqueue({
+    const task = await createAndEnqueue({
       prompt,
       config,
       channelId,
       replyToId: msg.id,
       createdBy: msg.author?.username,
     });
+    await putMessageMapping(msg.id, task.id);
   } catch (err) {
     logSystem(err.message, 'error-msg');
     try { await sendDiscordMessage(channelId, `Error: ${err.message}`, s.botToken, msg.id); } catch {}
@@ -204,9 +268,11 @@ async function handleScheduleCommand(msg, channelId, intervalStr, prompt, s) {
     createdBy: msg.author?.username,
     schedule:  { type: 'every', intervalMs },
   });
+  await putMessageMapping(msg.id, task.id);
 
   const reply = `Scheduled task \`${task.id}\` to run every ${formatMs(intervalMs)}.\nFirst run starting now.`;
-  await sendDiscordMessage(channelId, reply, s.botToken, msg.id);
+  const sent = await sendDiscordMessage(channelId, reply, s.botToken, msg.id);
+  if (sent?.id) await putMessageMapping(sent.id, task.id);
   logMessage({ channel_id: channelId, content: reply }, 'outgoing');
 }
 
