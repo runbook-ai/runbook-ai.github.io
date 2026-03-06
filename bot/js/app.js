@@ -1,5 +1,7 @@
 import { loadSettings, saveSettings } from './settings.js';
 import { gwConnect, gwDisconnect, gw } from './gateway.js';
+import { startCron } from './cron.js';
+import { enqueueTask, rehydrate } from './task-manager.js';
 
 // -- Settings form -------------------------------------------------------------
 
@@ -56,6 +58,22 @@ document.getElementById('connectBtn').addEventListener('click', () => {
     gw.stopped = false;
     gwConnect();
   }
+});
+
+// -- Task system initialization ------------------------------------------------
+
+// Start the cron scheduler — it watches for 'waiting' tasks whose nextRunAt
+// has arrived and re-queues them.
+startCron((task) => {
+  console.log('[app] cron fired for task', task.id);
+  enqueueTask(task);
+});
+
+// Rehydrate any tasks that were in-flight when the page was last closed.
+rehydrate().then(() => {
+  console.log('[app] task rehydration complete');
+}).catch(err => {
+  console.error('[app] task rehydration failed:', err);
 });
 
 // -- Auto-connect on load if credentials are already saved ---------------------
