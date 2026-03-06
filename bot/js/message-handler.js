@@ -177,11 +177,14 @@ export async function handleMessageCreate(msg, botUserId) {
 
   // Check if this is a reply to an existing task (follow-up)
   if (msg.message_reference) {
+    console.log('[message-handler] reply detected, ref:', msg.message_reference.message_id);
     const taskId = await traceTaskFromReply(msg, s.botToken);
     if (taskId) {
+      console.log('[message-handler] follow-up for task:', taskId);
       await handleFollowUp(taskId, msg, channelId, s);
       return;
     }
+    console.log('[message-handler] reply chain did not resolve to a task, treating as new');
   }
 
   // New task
@@ -202,19 +205,16 @@ export async function handleMessageCreate(msg, botUserId) {
 async function handleFollowUp(taskId, msg, channelId, s) {
   addReaction(channelId, msg.id, '%F0%9F%91%8D', s.botToken); // 👍
 
-  const task = await applyFollowUp(taskId, msg.content.trim());
+  // Record this message in the mapping
+  await putMessageMapping(msg.id, taskId);
+
+  // Append to conversation history and re-enqueue for immediate execution.
+  // The planner will see the full conversation and respond accordingly.
+  const task = await applyFollowUp(taskId, msg.content.trim(), msg.id);
   if (!task) {
     await sendDiscordMessage(channelId, 'Could not find the related task.', s.botToken, msg.id);
     return;
   }
-
-  // Record this message in the mapping
-  await putMessageMapping(msg.id, taskId);
-
-  const reply = `Got it — updated task \`${taskId}\`. Next run will use the new criteria.`;
-  const sent = await sendDiscordMessage(channelId, reply, s.botToken, msg.id);
-  if (sent?.id) await putMessageMapping(sent.id, taskId);
-  logMessage({ channel_id: channelId, content: reply }, 'outgoing');
 }
 
 // ── Command handlers ────────────────────────────────────────────────────────

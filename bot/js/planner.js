@@ -31,6 +31,8 @@ async function think(messages, tools = null) {
   return extensionCall(action, args);
 }
 
+const ACT_TIMEOUT_MS = 120_000; // 2 minutes max per browse step
+
 /** Browser action — locks the extension for the duration. */
 async function act(prompt) {
   const s = loadSettings();
@@ -50,11 +52,42 @@ async function act(prompt) {
     },
   });
 
-  const resp = await extensionCall('runHeadlessTask', { prompt });
+  // Race between the headless task and a timeout.
+  // We wrap in a manually-controlled promise so we can reject it even if
+  // chrome.runtime.sendMessage is stuck due to browser process overload.
+  let settled = false;
+  const result = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        // Try to stop the headless task
+        chrome.runtime.sendMessage(EXTENSION_ID, {
+          action: 'stopHeadlessTask', args: {},
+        }).catch(() => {});
+        reject(new Error('Browse step timed out after 2 minutes'));
+      }
+    }, ACT_TIMEOUT_MS);
+
+    extensionCall('runHeadlessTask', { prompt })
+      .then(resp => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(resp);
+        }
+      })
+      .catch(err => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(err);
+        }
+      });
+  });
 
   // Switch back to bot tab
   const botUrl = document.location.href;
-  const botTab = resp?.taskState?.tabs?.find(t => t.url && t.url === botUrl);
+  const botTab = result?.taskState?.tabs?.find(t => t.url && t.url === botUrl);
   if (botTab?.tabId != null) {
     chrome.runtime.sendMessage(EXTENSION_ID, {
       action: 'switchToTab',
@@ -62,7 +95,7 @@ async function act(prompt) {
     }).catch(() => {});
   }
 
-  return resp?.taskResult?.result || 'Task completed with no result.';
+  return result?.taskResult?.result || 'Task completed with no result.';
 }
 
 // ── Planner tools ──────────────────────────────────────────────────────────
@@ -161,7 +194,28 @@ Guidelines:
 - Include specific URLs, search terms, and criteria in browse prompts — don't assume the browser agent remembers previous steps.
 - If a browse step fails, try an alternative approach before giving up.
 - Send notify_user for important intermediate results so the user stays informed.
-- Always end with done to provide a final summary.`;
+- Always end with done to provide a final summary.
+- This may be a multi-turn conversation. Prior messages show what the user asked before and what you found. Use that context to handle follow-up requests (e.g. "reply to email 2" refers to an email listed in a previous response).
+- IMPORTANT: Prefer lightweight pages. When gathering info, read aggregator/summary pages (HN comments, search results, API endpoints) rather than navigating to heavy media-rich external sites. Heavy pages can freeze the browser.`;
+
+// ── Conversation history ───────────────────────────────────────────────────
+
+/**
+ * Build the conversation history array for storage.
+ * On first run, history is empty so we add the initial prompt + result.
+ * On follow-up runs, the user's follow-up is already in history (appended
+ * by applyFollowUp), so we just add the agent's new result.
+ */
+function buildHistory(existingHistory, prompt, result) {
+  const newHistory = [...existingHistory];
+  // If this is the first run, add the initial user message
+  if (newHistory.length === 0) {
+    newHistory.push({ role: 'user', content: prompt });
+  }
+  // Add the agent's result
+  newHistory.push({ role: 'assistant', content: result });
+  return newHistory;
+}
 
 // ── Planner loop ───────────────────────────────────────────────────────────
 
@@ -172,19 +226,30 @@ const MAX_STEPS = 10;
  *
  * @param {object} task - The task record
  * @param {function} onNotify - Called with (message) to deliver user notifications
- * @returns {{ result: string, memory?: object }}
+ * @returns {{ result: string, memory?: object, history: Array }}
  */
 export async function runPlan(task, onNotify) {
   const messages = [
     { role: 'system', content: PLANNER_SYSTEM_PROMPT },
-    { role: 'user', content: task.prompt },
   ];
 
-  // Inject context from prior runs
-  if (task.context && Object.keys(task.context).length > 0) {
+  // Replay conversation history if this is a follow-up run
+  const history = task.context?.history || [];
+  if (history.length > 0) {
+    for (const turn of history) {
+      messages.push({ role: turn.role, content: turn.content });
+    }
+  } else {
+    // First run — just the original prompt
+    messages.push({ role: 'user', content: task.prompt });
+  }
+
+  // Inject persistent memory (separate from conversation history)
+  const { history: _h, ...contextWithoutHistory } = (task.context || {});
+  if (Object.keys(contextWithoutHistory).length > 0) {
     messages.push({
       role: 'user',
-      content: `Context from prior runs:\n${JSON.stringify(task.context, null, 2)}`,
+      content: `Context from prior runs:\n${JSON.stringify(contextWithoutHistory, null, 2)}`,
     });
   }
 
@@ -232,9 +297,12 @@ export async function runPlan(task, onNotify) {
 
           case 'done': {
             console.log('[planner] done');
+            // Build conversation history for future follow-ups
+            const newHistory = buildHistory(history, task.prompt, args.summary);
             return {
               result: args.summary,
               memory: args.memory || null,
+              history: newHistory,
             };
           }
 
@@ -258,15 +326,18 @@ export async function runPlan(task, onNotify) {
 
     // LLM responded with plain text — treat as done
     if (resp.result?.text) {
-      return { result: resp.result.text };
+      const newHistory = buildHistory(history, task.prompt, resp.result.text);
+      return { result: resp.result.text, history: newHistory };
     }
     if (resp.result && typeof resp.result === 'object') {
-      return { result: JSON.stringify(resp.result) };
+      const text = JSON.stringify(resp.result);
+      const newHistory = buildHistory(history, task.prompt, text);
+      return { result: text, history: newHistory };
     }
 
     // Unexpected response
-    return { result: 'Plan ended unexpectedly.' };
+    return { result: 'Plan ended unexpectedly.', history };
   }
 
-  return { result: 'Plan reached maximum steps.' };
+  return { result: 'Plan reached maximum steps.', history };
 }

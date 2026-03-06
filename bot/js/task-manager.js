@@ -138,6 +138,11 @@ async function executeTask(task) {
       task.context = { ...task.context, ...planResult.memory };
     }
 
+    // Save conversation history for follow-up runs
+    if (planResult.history) {
+      task.context.history = planResult.history;
+    }
+
     // Decide next state
     if (task.schedule) {
       if (task.maxRuns && task.runCount >= task.maxRuns) {
@@ -192,27 +197,37 @@ async function executeTask(task) {
 
 /**
  * Apply a user follow-up message to an existing task.
- * Updates the task context and propagates to child cron tasks.
+ * Appends to conversation history and re-enqueues for immediate execution.
+ *
+ * @param {string} taskId - The task to follow up on
+ * @param {string} userMessage - The user's follow-up message
+ * @param {string} [replyToId] - The message ID to reply to (the follow-up message)
+ * @returns {object|null} The updated task, or null if not found
  */
-export async function applyFollowUp(taskId, userMessage) {
+export async function applyFollowUp(taskId, userMessage, replyToId) {
   const task = await getTask(taskId);
   if (!task) return null;
 
-  task.context.userUpdates = task.context.userUpdates || [];
-  task.context.userUpdates.push({
-    message: userMessage,
-    timestamp: Date.now(),
-  });
-  await putTask(task);
+  // Append user's follow-up to conversation history
+  task.context.history = task.context.history || [];
+  task.context.history.push({ role: 'user', content: userMessage });
 
-  // Propagate to active child tasks
+  // Update replyToId so the bot's response threads to the follow-up message
+  if (replyToId) {
+    task.replyToId = replyToId;
+  }
+
+  // Propagate context updates to active child cron tasks
   const children = await getChildTasks(taskId);
   for (const child of children) {
     if (child.status === 'waiting' || child.status === 'queued' || child.status === 'paused') {
-      child.context.userUpdates = task.context.userUpdates;
+      child.context.history = task.context.history;
       await putTask(child);
     }
   }
+
+  // Re-enqueue the task for immediate execution
+  await enqueueTask(task);
 
   return task;
 }
