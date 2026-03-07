@@ -33,7 +33,10 @@ async function think(messages, tools = null) {
 
 const ACT_TIMEOUT_MS = 120_000; // 2 minutes max per browse step
 
-/** Browser action — locks the extension for the duration. */
+/**
+ * Browser action — locks the extension for the duration.
+ * Returns { text, files } where files is a map of savedFiles from taskState.
+ */
 async function act(prompt) {
   const s = loadSettings();
 
@@ -41,7 +44,8 @@ async function act(prompt) {
   await extensionCall('openSidePanel', {});
   await new Promise(r => setTimeout(r, 500));
 
-  // Set config
+  // Set config fresh before each headless task.
+  // remoteConfig persists across calls, so we explicitly set every field we care about.
   await extensionCall('setRemoteConfig', {
     config: {
       ...(s.freeApiKey ? {
@@ -95,7 +99,13 @@ async function act(prompt) {
     }).catch(() => {});
   }
 
-  return result?.taskResult?.result || 'Task completed with no result.';
+  // Extract saved files from taskState (if any were downloaded during browsing)
+  const files = result?.taskState?.savedFiles || {};
+
+  return {
+    text: result?.taskResult?.result || 'Task completed with no result.',
+    files,
+  };
 }
 
 // ── Planner tools ──────────────────────────────────────────────────────────
@@ -253,6 +263,8 @@ export async function runPlan(task, onNotify) {
     });
   }
 
+  let collectedFiles = {};
+
   for (let step = 0; step < MAX_STEPS; step++) {
     const resp = await think(messages, PLANNER_TOOLS);
 
@@ -267,7 +279,13 @@ export async function runPlan(task, onNotify) {
             console.log('[planner] browse:', args.prompt.slice(0, 100));
             try {
               const browseResult = await act(args.prompt);
-              toolResult = { success: true, result: browseResult };
+              toolResult = { success: true, result: browseResult.text };
+              // Collect any files downloaded during this browse step
+              if (browseResult.files && Object.keys(browseResult.files).length > 0) {
+                collectedFiles = { ...collectedFiles, ...browseResult.files };
+                const fileNames = Object.keys(browseResult.files).join(', ');
+                toolResult.downloadedFiles = fileNames;
+              }
             } catch (err) {
               toolResult = { success: false, error: err.message };
             }
@@ -303,6 +321,7 @@ export async function runPlan(task, onNotify) {
               result: args.summary,
               memory: args.memory || null,
               history: newHistory,
+              files: collectedFiles,
             };
           }
 
@@ -327,7 +346,7 @@ export async function runPlan(task, onNotify) {
     // LLM responded with plain text — treat as done
     if (resp.result?.text) {
       const newHistory = buildHistory(history, task.prompt, resp.result.text);
-      return { result: resp.result.text, history: newHistory };
+      return { result: resp.result.text, history: newHistory, files: collectedFiles };
     }
     if (resp.result && typeof resp.result === 'object') {
       const text = JSON.stringify(resp.result);
