@@ -129,6 +129,12 @@ async function executeTask(task) {
       await deliver(task, message);
     });
 
+    // Re-read from DB to check if task was cancelled during execution
+    const freshTask = await getTask(task.id);
+    if (freshTask && freshTask.status === 'failed' && freshTask.lastError === 'Cancelled by user') {
+      return; // Task was cancelled while running — don't overwrite
+    }
+
     task.result            = planResult.result || 'Task completed with no result.';
     task.consecutiveErrors = 0;
     task.lastError         = null;
@@ -168,6 +174,12 @@ async function executeTask(task) {
 
   } catch (err) {
     console.error('[task-manager] executeTask failed:', err);
+
+    // Re-read from DB to check if task was cancelled during execution
+    const freshTask = await getTask(task.id);
+    if (freshTask && freshTask.status === 'failed' && freshTask.lastError === 'Cancelled by user') {
+      return; // Task was cancelled while running — don't overwrite
+    }
 
     task.consecutiveErrors += 1;
     task.lastError = err?.message ?? String(err);
