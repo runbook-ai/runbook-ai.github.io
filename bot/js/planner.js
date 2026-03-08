@@ -245,6 +245,17 @@ export async function runPlan(task, onNotify) {
     { role: 'system', content: PLANNER_SYSTEM_PROMPT },
   ];
 
+  // Build file attachment summary for the LLM
+  const fileNames = Object.keys(task.files || {});
+  const fileSuffix = fileNames.length > 0
+    ? '\n\nAttached files (available in browse steps for uploadFile):\n' +
+      fileNames.map(k => {
+        const f = task.files[k];
+        const sizeKB = Math.round((f.size || 0) / 1024);
+        return `- ${k} (${f.mimeType}, ${sizeKB}KB)`;
+      }).join('\n')
+    : '';
+
   // Replay conversation history if this is a follow-up run
   const history = task.context?.history || [];
   if (history.length > 0) {
@@ -252,8 +263,8 @@ export async function runPlan(task, onNotify) {
       messages.push({ role: turn.role, content: turn.content });
     }
   } else {
-    // First run — just the original prompt
-    messages.push({ role: 'user', content: task.prompt });
+    // First run — original prompt + file info
+    messages.push({ role: 'user', content: task.prompt + fileSuffix });
   }
 
   // Inject persistent memory (separate from conversation history)
@@ -265,7 +276,7 @@ export async function runPlan(task, onNotify) {
     });
   }
 
-  let collectedFiles = {};
+  let collectedFiles = { ...(task.files || {}) };
 
   for (let step = 0; step < MAX_STEPS; step++) {
     const resp = await think(messages, PLANNER_TOOLS);

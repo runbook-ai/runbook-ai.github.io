@@ -216,9 +216,14 @@ async function executeTask(task) {
  * @param {string} [replyToId] - The message ID to reply to (the follow-up message)
  * @returns {object|null} The updated task, or null if not found
  */
-export async function applyFollowUp(taskId, userMessage, replyToId) {
+export async function applyFollowUp(taskId, userMessage, replyToId, files) {
   const task = await getTask(taskId);
   if (!task) return null;
+
+  // Merge any new attached files into the task
+  if (files && Object.keys(files).length > 0) {
+    task.files = { ...(task.files || {}), ...files };
+  }
 
   // Append user's follow-up to conversation history
   task.context.history = task.context.history || [];

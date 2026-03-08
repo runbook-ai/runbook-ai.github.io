@@ -146,6 +146,7 @@ export function createTaskRecord(overrides = {}) {
     prompt:            '',
     context:           {},
     result:            null,
+    files:             {},
     config:            {},
     schedule:          null,
     nextRunAt:         null,

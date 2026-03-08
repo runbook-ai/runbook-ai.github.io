@@ -56,6 +56,52 @@ async function traceTaskFromReply(msg, token) {
   return null;
 }
 
+// ── Attachment downloading ─────────────────────────────────────────────────
+
+const ATTACHMENT_MAX_SIZE = 3 * 1024 * 1024; // 3 MB — matches extension downloadFile limit
+
+/**
+ * Download Discord attachments into a savedFiles-compatible map.
+ * Skips files over the size limit.
+ *
+ * @param {Array} attachments - Discord message attachments array
+ * @returns {Promise<object>} Map of { filename: { name, mimeType, base64, size } }
+ */
+async function downloadAttachments(attachments) {
+  const files = {};
+  if (!attachments?.length) return files;
+
+  for (const att of attachments) {
+    if (att.size > ATTACHMENT_MAX_SIZE) {
+      console.warn(`[handler] skipping attachment ${att.filename} (${att.size} bytes > 3 MB limit)`);
+      continue;
+    }
+    try {
+      const resp = await fetch(att.url);
+      if (!resp.ok) {
+        console.warn(`[handler] failed to download ${att.filename}: ${resp.status}`);
+        continue;
+      }
+      const blob = await resp.blob();
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      files[att.filename] = {
+        name: att.filename,
+        mimeType: att.content_type || 'application/octet-stream',
+        base64,
+        size: att.size,
+      };
+    } catch (err) {
+      console.warn(`[handler] error downloading ${att.filename}:`, err);
+    }
+  }
+  return files;
+}
+
 // ── Message handling ────────────────────────────────────────────────────────
 
 /**
@@ -72,7 +118,8 @@ export async function handleMessageCreate(msg, botUserId) {
   const allowedUsers = getAllowedUsers();
   if (!allowedUsers.has(msg.author?.username?.toLowerCase())) return;
 
-  if (!msg.content?.trim()) {
+  const hasAttachments = msg.attachments?.length > 0;
+  if (!msg.content?.trim() && !hasAttachments) {
     logSystem(
       'Received a message with empty content. ' +
       'Enable the MESSAGE_CONTENT privileged intent in your Discord application settings ' +
@@ -187,10 +234,12 @@ export async function handleMessageCreate(msg, botUserId) {
     console.log('[message-handler] reply chain did not resolve to a task, treating as new');
   }
 
-  // New task
+  // New task — download any attachments first
   addReaction(channelId, msg.id, '%F0%9F%91%8D', s.botToken); // 👍
+  const files = await downloadAttachments(msg.attachments);
   const task = await createAndEnqueue({
-    prompt:    content,
+    prompt:    content || '(see attached files)',
+    files,
     config:    {},
     channelId,
     replyToId: msg.id,
@@ -208,9 +257,12 @@ async function handleFollowUp(taskId, msg, channelId, s) {
   // Record this message in the mapping
   await putMessageMapping(msg.id, taskId);
 
+  // Download any new attachments
+  const files = await downloadAttachments(msg.attachments);
+
   // Append to conversation history and re-enqueue for immediate execution.
   // The planner will see the full conversation and respond accordingly.
-  const task = await applyFollowUp(taskId, msg.content.trim(), msg.id);
+  const task = await applyFollowUp(taskId, msg.content.trim(), msg.id, files);
   if (!task) {
     await sendDiscordMessage(channelId, 'Could not find the related task.', s.botToken, msg.id);
     return;
