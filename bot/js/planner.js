@@ -3,8 +3,8 @@
  * then executes each step via the extension.
  *
  * Two execution modes:
- *   think(messages)     → callLLM (pure reasoning, no browser)
- *   act(prompt)         → runHeadlessTask (browser interaction)
+ *   think(messages, tools) → callLLMWithTools (reasoning + tool use)
+ *   act(prompt)            → runHeadlessTask (browser interaction)
  */
 
 import { loadSettings } from './settings.js';
@@ -28,8 +28,8 @@ async function extensionCall(action, args) {
   return resp;
 }
 
-/** Pure reasoning — no browser lock, fast and cheap. */
-async function think(messages, tools = null) {
+/** LLM reasoning with tool use — no browser lock, fast and cheap. */
+async function think(messages, tools) {
   const s = loadSettings();
   const freeConfig = s.freeApiKey
     ? { llmBaseUrl: 'https://llm.runbookai.net/v1', llmApiKey: 'free' }
@@ -39,10 +39,8 @@ async function think(messages, tools = null) {
   if (freeConfig) await extensionCall('setRemoteConfig', { config: freeConfig });
 
   try {
-    const action = tools ? 'callLLMWithTools' : 'callLLM';
-    const args = { messages, role: 'worker', timeout: 60000 };
-    if (tools) args.tools = tools;
-    return await extensionCall(action, args);
+    const args = { messages, tools, role: 'worker', timeout: 60000 };
+    return await extensionCall('callLLMWithTools', args);
   } finally {
     // Restore original config
     if (freeConfig) {
@@ -246,7 +244,8 @@ Guidelines:
 - Send notify_user for important intermediate results so the user stays informed.
 - Always end with done to provide a final summary.
 - This may be a multi-turn conversation. Prior messages show what the user asked before and what you found. Use that context to handle follow-up requests (e.g. "reply to email 2" refers to an email listed in a previous response).
-- IMPORTANT: Prefer lightweight pages. When gathering info, read aggregator/summary pages (HN comments, search results, API endpoints) rather than navigating to heavy media-rich external sites. Heavy pages can freeze the browser.`;
+- IMPORTANT: Prefer lightweight pages. When gathering info, read aggregator/summary pages (HN comments, search results, API endpoints) rather than navigating to heavy media-rich external sites. Heavy pages can freeze the browser.
+- If the user input contains <subTask>...</subTask> or <forEachItem>...</forEachItem> notations, pass them as-is to the browse tool prompt. Do not interpret, expand, or strip these tags — they are processed downstream by the browser agent.`;
 
 // ── Conversation history ───────────────────────────────────────────────────
 
