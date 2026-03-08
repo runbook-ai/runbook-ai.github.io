@@ -4,9 +4,7 @@
 
 Runbook AI is an autonomous, local-first AI agent that lives in your browser. Tell it what you need — it figures out the steps, navigates pages, fills forms, and gets things done on its own. No scripting, no hand-holding.
 
-
-https://github.com/user-attachments/assets/d20b3f4e-c1ba-4ca5-9e60-73d497710c81
-
+https://github.com/user-attachments/assets/b9e5a243-4e68-455b-9b81-cf1004271c1e
 
 ## What's Included
 
