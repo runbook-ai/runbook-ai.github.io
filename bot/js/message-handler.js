@@ -153,7 +153,7 @@ export async function handleMessageCreate(msg, botUserId) {
       '`!run <runbook>` - launch a saved runbook\n' +
       '`!schedule <interval> <prompt>` - schedule a recurring task\n' +
       '  e.g. `!schedule 2h check gmail for car replies`\n' +
-      '`!tasks` - list active tasks\n' +
+      '`!tasks` - list ongoing + recent tasks (`!tasks all` for full history)\n' +
       '`!cancel <id>` - cancel a task\n' +
       '`!pause <id>` - pause a scheduled task\n' +
       '`!resume <id>` - resume a paused task\n' +
@@ -164,9 +164,10 @@ export async function handleMessageCreate(msg, botUserId) {
     return;
   }
 
-  // !tasks — list tasks
-  if (/^!tasks\s*$/i.test(content)) {
-    await handleTasksCommand(channelId, msg.id, s);
+  // !tasks [all] — list tasks (ongoing by default, or all)
+  const tasksMatch = content.match(/^!tasks(?:\s+(all))?\s*$/i);
+  if (tasksMatch) {
+    await handleTasksCommand(channelId, msg.id, s, !!tasksMatch[1]);
     return;
   }
 
@@ -329,10 +330,22 @@ async function handleScheduleCommand(msg, channelId, intervalStr, prompt, s) {
   logMessage({ channel_id: channelId, content: reply }, 'outgoing');
 }
 
-async function handleTasksCommand(channelId, replyToId, s) {
-  const tasks = await listTasks();
+async function handleTasksCommand(channelId, replyToId, s, showAll = false) {
+  let tasks = await listTasks();
+
+  if (!showAll) {
+    // Show all ongoing tasks + up to 10 most recent finished tasks
+    const ongoing = tasks.filter(t => ['running', 'queued', 'waiting', 'paused'].includes(t.status));
+    const finished = tasks
+      .filter(t => t.status === 'completed' || t.status === 'failed')
+      .sort((a, b) => (b.lastRunAt || b.updatedAt || 0) - (a.lastRunAt || a.updatedAt || 0))
+      .slice(0, 10);
+    tasks = [...ongoing, ...finished];
+  }
+
   if (tasks.length === 0) {
-    await sendDiscordMessage(channelId, 'No tasks.', s.botToken, replyToId);
+    const hint = showAll ? 'No tasks.' : 'No tasks. Use `!tasks all` to see full history.';
+    await sendDiscordMessage(channelId, hint, s.botToken, replyToId);
     return;
   }
 
@@ -351,6 +364,7 @@ async function handleTasksCommand(channelId, replyToId, s) {
   });
 
   if (tasks.length > 15) lines.push(`...and ${tasks.length - 15} more`);
+  if (!showAll) lines.push('_Use `!tasks all` to see full history._');
 
   await sendDiscordMessage(channelId, lines.join('\n'), s.botToken, replyToId);
 }
