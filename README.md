@@ -4,6 +4,10 @@
 
 Runbook AI is an autonomous, local-first AI agent that lives in your browser. Tell it what you need — it figures out the steps, navigates pages, fills forms, and gets things done on its own. No scripting, no hand-holding.
 
+
+https://github.com/user-attachments/assets/d20b3f4e-c1ba-4ca5-9e60-73d497710c81
+
+
 ## What's Included
 
 - **Chrome Extension** — The core autonomous agent. Describe what you need in plain English and it handles the rest — navigating, clicking, filling forms, and extracting data. Zero data leaves your machine except to your LLM. [Install](https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj)
