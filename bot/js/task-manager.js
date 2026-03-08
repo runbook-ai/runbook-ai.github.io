@@ -73,9 +73,10 @@ export async function enqueueTask(task) {
 }
 
 /** Create and enqueue a new task from a user message. */
-export async function createAndEnqueue({ prompt, config, channelId, replyToId, createdBy, schedule }) {
+export async function createAndEnqueue({ prompt, files, config, channelId, replyToId, createdBy, schedule }) {
   const task = createTaskRecord({
     prompt,
+    files: files ?? {},
     config,
     channelId,
     replyToId,

@@ -1,4 +1,4 @@
-import { loadSettings, getAllowedUsers } from './settings.js';
+import { loadSettings, getAllowedUsers, PROXY_URL } from './settings.js';
 import { logMessage, logSystem } from './ui.js';
 import {
   sendDiscordMessage, addReaction, openDMChannel,
@@ -77,24 +77,25 @@ async function downloadAttachments(attachments) {
       continue;
     }
     try {
-      const resp = await fetch(att.url);
+      // Route through CORS proxy to bypass Discord CDN restrictions
+      const resp = await fetch(`${PROXY_URL}?url=${encodeURIComponent(att.url)}`);
       if (!resp.ok) {
-        console.warn(`[handler] failed to download ${att.filename}: ${resp.status}`);
+        console.warn(`[handler] proxy fetch failed for ${att.filename}: HTTP ${resp.status}`);
         continue;
       }
       const blob = await resp.blob();
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
+      const arrayBuffer = await blob.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const base64 = btoa(binary);
       files[att.filename] = {
         name: att.filename,
-        mimeType: att.content_type || 'application/octet-stream',
+        mimeType: att.content_type || blob.type || 'application/octet-stream',
         base64,
-        size: att.size,
+        size: blob.size,
       };
+      console.log(`[handler] downloaded ${att.filename} (${blob.size} bytes)`);
     } catch (err) {
       console.warn(`[handler] error downloading ${att.filename}:`, err);
     }
