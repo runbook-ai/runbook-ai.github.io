@@ -25,10 +25,27 @@ async function extensionCall(action, args) {
 
 /** Pure reasoning — no browser lock, fast and cheap. */
 async function think(messages, tools = null) {
-  const action = tools ? 'callLLMWithTools' : 'callLLM';
-  const args = { messages, role: 'worker', timeout: 60000 };
-  if (tools) args.tools = tools;
-  return extensionCall(action, args);
+  const s = loadSettings();
+  const freeConfig = s.freeApiKey
+    ? { llmBaseUrl: 'https://llm.runbookai.net/v1', llmApiKey: 'free' }
+    : null;
+
+  // Apply free API config before the call
+  if (freeConfig) await extensionCall('setRemoteConfig', { config: freeConfig });
+
+  try {
+    const action = tools ? 'callLLMWithTools' : 'callLLM';
+    const args = { messages, role: 'worker', timeout: 60000 };
+    if (tools) args.tools = tools;
+    return await extensionCall(action, args);
+  } finally {
+    // Restore original config
+    if (freeConfig) {
+      await extensionCall('setRemoteConfig', {
+        config: { llmBaseUrl: null, llmApiKey: null },
+      }).catch(() => {});
+    }
+  }
 }
 
 const ACT_TIMEOUT_MS = 120_000; // 2 minutes max per browse step
@@ -245,16 +262,44 @@ export async function runPlan(task, onNotify) {
     { role: 'system', content: PLANNER_SYSTEM_PROMPT },
   ];
 
-  // Build file attachment summary for the LLM
-  const fileNames = Object.keys(task.files || {});
-  const fileSuffix = fileNames.length > 0
+  // Separate image files (for vision) from non-image files (metadata only)
+  const allFiles = task.files || {};
+  const imageFiles = {};
+  const otherFiles = {};
+  for (const [k, f] of Object.entries(allFiles)) {
+    if (f.mimeType && f.mimeType.startsWith('image/')) {
+      imageFiles[k] = f;
+    } else {
+      otherFiles[k] = f;
+    }
+  }
+
+  // Build text suffix for non-image attachments
+  const otherFileNames = Object.keys(otherFiles);
+  const nonImageSuffix = otherFileNames.length > 0
     ? '\n\nAttached files (available in browse steps for uploadFile):\n' +
-      fileNames.map(k => {
-        const f = task.files[k];
+      otherFileNames.map(k => {
+        const f = otherFiles[k];
         const sizeKB = Math.round((f.size || 0) / 1024);
         return `- ${k} (${f.mimeType}, ${sizeKB}KB)`;
       }).join('\n')
     : '';
+
+  // Build a multimodal user content array if there are images
+  function buildUserContent(text) {
+    const imageEntries = Object.entries(imageFiles);
+    if (imageEntries.length === 0) return text;
+
+    const parts = [{ type: 'text', text }];
+    for (const [name, f] of imageEntries) {
+      parts.push({
+        type: 'image_url',
+        image_url: { url: `data:${f.mimeType};base64,${f.base64}` },
+      });
+      parts.push({ type: 'text', text: `(image: ${name})` });
+    }
+    return parts;
+  }
 
   // Replay conversation history if this is a follow-up run
   const history = task.context?.history || [];
@@ -263,8 +308,8 @@ export async function runPlan(task, onNotify) {
       messages.push({ role: turn.role, content: turn.content });
     }
   } else {
-    // First run — original prompt + file info
-    messages.push({ role: 'user', content: task.prompt + fileSuffix });
+    // First run — original prompt + file info + inline images
+    messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
   }
 
   // Inject persistent memory (separate from conversation history)

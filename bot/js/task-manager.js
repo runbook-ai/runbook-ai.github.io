@@ -226,9 +226,22 @@ export async function applyFollowUp(taskId, userMessage, replyToId, files) {
     task.files = { ...(task.files || {}), ...files };
   }
 
-  // Append user's follow-up to conversation history
+  // Append user's follow-up to conversation history (with inline images if any)
   task.context.history = task.context.history || [];
-  task.context.history.push({ role: 'user', content: userMessage });
+  const imageEntries = Object.entries(files || {}).filter(([, f]) => f.mimeType?.startsWith('image/'));
+  if (imageEntries.length > 0) {
+    const parts = [{ type: 'text', text: userMessage || '(see attached images)' }];
+    for (const [name, f] of imageEntries) {
+      parts.push({
+        type: 'image_url',
+        image_url: { url: `data:${f.mimeType};base64,${f.base64}` },
+      });
+      parts.push({ type: 'text', text: `(image: ${name})` });
+    }
+    task.context.history.push({ role: 'user', content: parts });
+  } else {
+    task.context.history.push({ role: 'user', content: userMessage });
+  }
 
   // Update replyToId so the bot's response threads to the follow-up message
   if (replyToId) {
