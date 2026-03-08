@@ -37,24 +37,26 @@ const ACT_TIMEOUT_MS = 120_000; // 2 minutes max per browse step
  * Browser action — locks the extension for the duration.
  * Returns { text, files } where files is a map of savedFiles from taskState.
  */
-async function act(prompt) {
+async function act(prompt, savedFiles = {}) {
   const s = loadSettings();
 
   // Ensure side panel is open
   await extensionCall('openSidePanel', {});
   await new Promise(r => setTimeout(r, 500));
 
-  // Set config fresh before each headless task.
-  // remoteConfig persists across calls, so we explicitly set every field we care about.
-  await extensionCall('setRemoteConfig', {
-    config: {
-      ...(s.freeApiKey ? {
-        llmBaseUrl: 'https://llm.runbookai.net/v1',
-        llmApiKey:  'free',
-      } : {}),
-      returnTaskState: true,
-    },
-  });
+  // Build config and initial taskState — bundled into one call so config
+  // changes are scoped and don't leak if the task fails unexpectedly.
+  const config = {
+    ...(s.freeApiKey ? {
+      llmBaseUrl: 'https://llm.runbookai.net/v1',
+      llmApiKey:  'free',
+    } : {}),
+    returnTaskState: true,
+  };
+
+  const initialTaskState = Object.keys(savedFiles).length > 0
+    ? { savedFiles }
+    : null;
 
   // Race between the headless task and a timeout.
   // We wrap in a manually-controlled promise so we can reject it even if
@@ -72,7 +74,7 @@ async function act(prompt) {
       }
     }, ACT_TIMEOUT_MS);
 
-    extensionCall('runHeadlessTask', { prompt })
+    extensionCall('runHeadlessTaskWithConfig', { prompt, initialTaskState, config })
       .then(resp => {
         if (!settled) {
           settled = true;
@@ -278,7 +280,7 @@ export async function runPlan(task, onNotify) {
           case 'browse': {
             console.log('[planner] browse:', args.prompt.slice(0, 100));
             try {
-              const browseResult = await act(args.prompt);
+              const browseResult = await act(args.prompt, collectedFiles);
               toolResult = { success: true, result: browseResult.text };
               // Collect any files downloaded during this browse step
               if (browseResult.files && Object.keys(browseResult.files).length > 0) {
