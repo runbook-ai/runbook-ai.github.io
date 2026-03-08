@@ -173,7 +173,11 @@ async function executeTask(task) {
     await putTask(task);
 
     // Deliver final result
-    if (task.delivery !== 'silent' && task.channelId) {
+    // For recurring scheduled tasks still waiting, skip delivery — only notify
+    // when the task completes (stop condition met or max runs reached) or
+    // when the planner explicitly used notify_user during execution.
+    const isQuietRun = task.schedule && task.status === 'waiting';
+    if (!isQuietRun && task.delivery !== 'silent' && task.channelId) {
       await deliver(task, task.result);
     }
 
@@ -210,8 +214,9 @@ async function executeTask(task) {
     }
     await putTask(task);
 
-    // Notify user of error
-    if (task.channelId) {
+    // Notify user of error — but for scheduled tasks that will retry, stay quiet
+    const willRetry = task.schedule && task.status === 'waiting';
+    if (!willRetry && task.channelId) {
       const isExtErr = err?.message?.includes('extension');
       const notice = isExtErr
         ? `Extension error: ${task.lastError}\n\nMake sure the Runbook AI extension side panel is opened.`
