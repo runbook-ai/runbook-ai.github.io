@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Runbook AI — AI Agent for Autonomous Web Tasks</title>
-  <meta name="description" content="Runbook AI is a local-first, privacy-first AI agent that runs entirely in your browser. Automate web tasks with your chosen LLM." />
+  <title>Runbook AI — The AI That Acts on Your Behalf in the Browser</title>
+  <meta name="description" content="Runbook AI is an autonomous, local-first AI agent that lives in your browser. Tell it what you need and it handles the rest — no scripting, no hand-holding." />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -60,26 +60,94 @@
     .btn-outline { background: transparent; color: var(--indigo); border: 1.5px solid var(--indigo); }
     .btn-outline:hover { background: var(--indigo-light); text-decoration: none; }
 
-    /* Hero */
-    .hero { text-align: center; padding: 48px 24px 60px; max-width: 760px; margin: 0 auto; }
+    /* Hero — stacked centered layout */
+    .hero {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 28px 24px 20px;
+    }
+    .hero-header { margin-bottom: 10px; }
     .hero-badge {
       display: inline-block; background: var(--indigo-light); color: var(--indigo-dark);
-      font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
-      padding: 4px 12px; border-radius: 20px; margin-bottom: 20px;
+      font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+      padding: 3px 10px; border-radius: 20px; margin-bottom: 10px;
     }
-    .hero h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; letter-spacing: -1px; line-height: 1.15; }
+    .hero h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); font-weight: 800; letter-spacing: -1px; line-height: 1.15; }
     .hero h1 span { color: var(--indigo); }
-    .hero p { margin-top: 20px; font-size: 1.125rem; color: var(--muted); max-width: 600px; margin-left: auto; margin-right: auto; }
-    .hero-actions { display: flex; justify-content: center; gap: 12px; margin-top: 32px; flex-wrap: wrap; }
+    .hero-subtitle { margin-top: 8px; font-size: 0.9rem; color: var(--muted); line-height: 1.5; max-width: 640px; }
+    .hero-actions { display: flex; justify-content: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
 
-    /* Video */
-    .video-section { max-width: 820px; margin: 0 auto 72px; padding: 0 24px; }
-    .video-wrapper {
-      position: relative; padding-bottom: 56.25%; height: 0;
-      border-radius: 14px; overflow: hidden;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.12); border: 1px solid var(--border);
+    /* Video Carousel */
+    .carousel-container { width: 100%; position: relative; }
+    .carousel-outer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
-    .video-wrapper iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+    .carousel {
+      flex: 1;
+      min-width: 0;
+      position: relative;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+      border: 1px solid var(--border);
+      background: #000;
+    }
+    .carousel-track {
+      display: flex;
+      transition: transform 0.4s ease;
+    }
+    .carousel-slide {
+      flex: 0 0 100%;
+      min-width: 0;
+    }
+    .carousel-slide .video-wrapper {
+      position: relative;
+      padding-bottom: 56.25%;
+      height: 0;
+    }
+    .carousel-slide .video-wrapper iframe {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;
+    }
+    .carousel-btn {
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border);
+      background: var(--white);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+      font-size: 1.1rem;
+      color: var(--text);
+      flex-shrink: 0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .carousel-btn:hover {
+      background: var(--indigo-light);
+      border-color: var(--indigo);
+      color: var(--indigo);
+    }
+    .carousel-dots {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 10px;
+    }
+    .carousel-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: background 0.2s;
+    }
+    .carousel-dot.active {
+      background: var(--indigo);
+    }
 
     /* Pillars */
     .pillars { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; max-width: 820px; margin: 0 auto 72px; padding: 0 24px; }
@@ -126,7 +194,7 @@
     .divider { border: none; border-top: 1px solid var(--border); max-width: 900px; margin: 0 auto 72px; }
 
     /* Why section */
-    .why-section { max-width: 760px; margin: 0 auto 80px; padding: 0 24px; }
+    .why-section { max-width: 900px; margin: 0 auto 80px; padding: 0 24px; }
     .why-section .section-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--indigo); margin-bottom: 10px; }
     .why-section h2 { font-size: clamp(1.4rem, 3vw, 1.9rem); font-weight: 800; letter-spacing: -0.5px; margin-bottom: 20px; }
     .why-section > p { font-size: 1rem; color: var(--muted); line-height: 1.7; margin-bottom: 16px; }
@@ -147,9 +215,12 @@
     .key-features li strong { display: block; font-size: 0.9375rem; color: var(--text); margin-bottom: 3px; }
     .key-features li span { color: var(--muted); }
 
+    /* Responsive */
     @media (max-width: 480px) {
       .nav-links { display: none; }
-      .hero { padding: 56px 16px 40px; }
+      .hero { padding: 20px 16px 16px; }
+      .hero h1 { font-size: 1.5rem; }
+      .hero-subtitle { font-size: 0.82rem; }
     }
   </style>
 </head>
@@ -168,26 +239,102 @@
   </nav>
 
   <section class="hero">
-    <div class="hero-badge">Local-first &bull; Privacy-first &bull; Token-efficient &bull; Open source</div>
-    <h1>Your AI agent for<br><span>autonomous web tasks</span></h1>
-    <p>Runbook AI is a Chrome extension that lets you assign any web-based task to an AI agent and watch it carry out browser actions in real time — entirely in your browser, with your chosen LLM.</p>
+    <div class="hero-header">
+      <div class="hero-badge">Local-first &bull; Privacy-first &bull; Open source</div>
+      <h1>The AI that <span>acts on your behalf</span> in the browser</h1>
+      <p class="hero-subtitle">Runbook AI is an autonomous AI agent that lives in your browser. Tell it what you need — it figures out the steps, navigates pages, fills forms, and gets things done on its own. No scripting, no hand-holding.</p>
+    </div>
+
+    <div class="carousel-container">
+      <div class="carousel-outer">
+        <button class="carousel-btn" id="prevBtn" aria-label="Previous video">&#8249;</button>
+        <div class="carousel" id="videoCarousel">
+          <div class="carousel-track" id="carouselTrack">
+            <div class="carousel-slide">
+              <div class="video-wrapper">
+                <iframe
+                  src="https://www.youtube.com/embed/FrghGseCx04"
+                  title="Runbook AI Bot in action"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  loading="lazy"
+                  allowfullscreen>
+                </iframe>
+              </div>
+            </div>
+            <div class="carousel-slide">
+              <div class="video-wrapper">
+                <iframe
+                  src="https://www.youtube.com/embed/dxtUFrOE4vw"
+                  title="Runbook AI overview"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  loading="lazy"
+                  allowfullscreen>
+                </iframe>
+              </div>
+            </div>
+          </div>
+        </div>
+        <button class="carousel-btn" id="nextBtn" aria-label="Next video">&#8250;</button>
+      </div>
+      <div class="carousel-dots" id="carouselDots">
+        <div class="carousel-dot active"></div>
+        <div class="carousel-dot"></div>
+      </div>
+    </div>
+
     <div class="hero-actions">
       <a class="btn btn-primary" href="https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj" target="_blank">Install for Chrome</a>
-      <a class="btn btn-outline" href="/runbooks/">Browse Runbooks</a>
+      <a class="btn btn-outline" href="/bot/">Set Up the Bot</a>
       <a class="btn btn-outline" href="https://discord.gg/SDtXkAKK2B" target="_blank">Join Discord</a>
     </div>
   </section>
 
-  <div class="video-section">
-    <div class="video-wrapper">
-      <iframe
-        src="https://www.youtube.com/embed/dxtUFrOE4vw"
-        title="Runbook AI demo"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-        allowfullscreen>
-      </iframe>
+  <hr class="divider" />
+
+  <section class="section">
+    <div class="section-label">What's included</div>
+    <h2>Everything you need to get things done on the web</h2>
+    <p>Runbook AI is more than just an extension — it's a full ecosystem for delegating, sharing, and running autonomous web tasks.</p>
+
+    <div class="components-grid">
+
+      <div class="component-card">
+        <div class="component-icon" style="background:#e0e7ff;">🧩</div>
+        <h3>Chrome Extension</h3>
+        <p>The core autonomous agent. Describe what you need in plain English and it handles the rest — navigating, clicking, filling forms, and extracting data on its own. Zero data leaves your machine except to your LLM.</p>
+        <a class="card-link" href="https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj" target="_blank">Install →</a>
+      </div>
+
+      <div class="component-card">
+        <div class="component-icon" style="background:#d1fae5;">📋</div>
+        <h3>Runbook Share &amp; Run</h3>
+        <p>Discover community-contributed runbooks for common tasks. Each runbook is a reusable, shareable prompt + config pair. Run them with one click directly from your browser.</p>
+        <a class="card-link" href="/runbooks/">Browse runbooks →</a>
+      </div>
+
+      <div class="component-card">
+        <div class="component-icon" style="background:#ede9fe;">🤖</div>
+        <h3>Bot</h3>
+        <p>Delegate tasks to Runbook AI from anywhere — just send a message to your bot and it acts on your behalf. Great for getting things done on the go. Currently supports Discord, with more platforms coming.</p>
+        <a class="card-link" href="/bot/">Set up the bot →</a>
+      </div>
+
+      <div class="component-card">
+        <div class="component-icon" style="background:#fef3c7;">🔌</div>
+        <h3>MCP Server</h3>
+        <p>Invoke Runbook AI from Claude Code, Gemini CLI, and other MCP-compatible clients. The <code style="font-size:0.8rem;background:#f3f4f6;padding:1px 5px;border-radius:4px;">runbook-ai-mcp</code> package bridges AI coding tools to your browser agent.</p>
+        <a class="card-link" href="https://github.com/runbook-ai/runbook-ai-mcp" target="_blank">View on GitHub →</a>
+      </div>
+
+      <div class="component-card" style="opacity:0.72;">
+        <div class="component-icon" style="background:#fce7f3;">🧠</div>
+        <h3>Browser Agent LLM</h3>
+        <p>A custom LLM fine-tuned specifically for autonomous browser tasks — faster, cheaper, and more reliable than general-purpose models for navigating, clicking, and extracting data from the web.</p>
+        <span class="card-link" style="color:#7c3aed;cursor:default;">Coming soon</span>
+      </div>
+
     </div>
-  </div>
+  </section>
 
   <hr class="divider" />
 
@@ -212,59 +359,16 @@
         <span class="kf-icon">⚡</span>
         <div><strong>Terminal Power</strong><span>With the MCP bridge, call your browser as a tool directly from Claude Code or any agent that supports MCP servers.</span></div>
       </li>
+      <li>
+        <span class="kf-icon">🚀</span>
+        <div><strong>Zero Install, Just a Browser</strong><span>No local servers, no software to install, no complicated setup. Install the Chrome extension and you're ready to go — all you need is a browser.</span></div>
+      </li>
     </ul>
   </section>
 
-  <hr class="divider" />
-
-  <section class="section">
-    <div class="section-label">What's included</div>
-    <h2>Everything you need to automate the web</h2>
-    <p>Runbook AI is more than just an extension — it's a full ecosystem for creating, sharing, and running AI-powered web automation.</p>
-
-    <div class="components-grid">
-
-      <div class="component-card">
-        <div class="component-icon" style="background:#e0e7ff;">🧩</div>
-        <h3>Chrome Extension</h3>
-        <p>The core AI agent. Assign any task in plain English and watch it navigate, click, fill forms, and extract data — all in your active browser, with zero data leaving your machine except to your LLM.</p>
-        <a class="card-link" href="https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj" target="_blank">Install →</a>
-      </div>
-
-      <div class="component-card">
-        <div class="component-icon" style="background:#d1fae5;">📋</div>
-        <h3>Runbook Share &amp; Run</h3>
-        <p>Discover community-contributed runbooks for common tasks. Each runbook is a reusable, shareable prompt + config pair. Run them with one click directly from your browser.</p>
-        <a class="card-link" href="/runbooks/">Browse runbooks →</a>
-      </div>
-
-      <div class="component-card">
-        <div class="component-icon" style="background:#ede9fe;">🤖</div>
-        <h3>Bot</h3>
-        <p>Run runbooks and issue tasks to the Runbook AI extension from anywhere — send a message to your bot. Great for triggering automations on the go. Currently supports Discord, with more platforms coming.</p>
-        <a class="card-link" href="/bot/">Set up the bot →</a>
-      </div>
-
-      <div class="component-card">
-        <div class="component-icon" style="background:#fef3c7;">🔌</div>
-        <h3>MCP Server</h3>
-        <p>Invoke Runbook AI from Claude Code, Gemini CLI, and other MCP-compatible clients. The <code style="font-size:0.8rem;background:#f3f4f6;padding:1px 5px;border-radius:4px;">runbook-ai-mcp</code> package bridges AI coding tools to your browser agent.</p>
-        <a class="card-link" href="https://github.com/runbook-ai/runbook-ai-mcp" target="_blank">View on GitHub →</a>
-      </div>
-
-      <div class="component-card" style="opacity:0.72;">
-        <div class="component-icon" style="background:#fce7f3;">🧠</div>
-        <h3>Browser Automation LLM</h3>
-        <p>A custom LLM fine-tuned specifically for browser automation tasks — faster, cheaper, and more reliable than general-purpose models for navigating, clicking, and extracting data from the web.</p>
-        <span class="card-link" style="color:#7c3aed;cursor:default;">Coming soon</span>
-      </div>
-
-    </div>
-  </section>
-
   <section class="cta-section">
-    <h2>Start automating in minutes</h2>
-    <p>Install the extension, point it at your LLM, and assign your first task. No account required.</p>
+    <h2>Let it handle the work</h2>
+    <p>Install the extension, point it at your LLM, and delegate your first task. No account required.</p>
   </section>
 
   <footer>
@@ -273,5 +377,24 @@
     <a href="/about/terms-of-service.html">Terms of Service</a>
   </footer>
 
+  <script>
+    (function() {
+      var track = document.getElementById('carouselTrack');
+      var dots = document.querySelectorAll('.carousel-dot');
+      var prevBtn = document.getElementById('prevBtn');
+      var nextBtn = document.getElementById('nextBtn');
+      var current = 0;
+      var total = 2;
+
+      function goTo(i) {
+        current = (i + total) % total;
+        track.style.transform = 'translateX(-' + (current * 100) + '%)';
+        dots.forEach(function(d, idx) { d.classList.toggle('active', idx === current); });
+      }
+
+      prevBtn.addEventListener('click', function() { goTo(current - 1); });
+      nextBtn.addEventListener('click', function() { goTo(current + 1); });
+    })();
+  </script>
 </body>
 </html>

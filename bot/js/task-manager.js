@@ -15,7 +15,7 @@ import {
 } from './task-store.js';
 import { computeNextRun, computeBackoff } from './cron.js';
 import { showProcessing, hideProcessing } from './ui.js';
-import { runPlan } from './planner.js';
+import { runPlan, UserCancelledError } from './planner.js';
 
 // ── Delivery callback ──────────────────────────────────────────────────────
 
@@ -152,7 +152,11 @@ async function executeTask(task) {
 
     // Decide next state
     if (task.schedule) {
-      if (task.maxRuns && task.runCount >= task.maxRuns) {
+      if (planResult.stopReached) {
+        // Stop condition met — auto-complete the recurring task
+        task.status    = 'completed';
+        task.nextRunAt = null;
+      } else if (task.maxRuns && task.runCount >= task.maxRuns) {
         task.status    = 'completed';
         task.nextRunAt = null;
       } else if (task.schedule.type === 'at') {
@@ -180,6 +184,19 @@ async function executeTask(task) {
     const freshTask = await getTask(task.id);
     if (freshTask && freshTask.status === 'failed' && freshTask.lastError === 'Cancelled by user') {
       return; // Task was cancelled while running — don't overwrite
+    }
+
+    // User cancelled the task in the extension — stop immediately, don't retry
+    if (err instanceof UserCancelledError) {
+      task.status    = 'failed';
+      task.lastError = 'Cancelled by user';
+      task.nextRunAt = null;
+      await putTask(task);
+
+      if (task.channelId) {
+        await deliver(task, 'Task cancelled by user.');
+      }
+      return;
     }
 
     task.consecutiveErrors += 1;

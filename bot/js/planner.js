@@ -12,6 +12,11 @@ import { createAndEnqueue } from './task-manager.js';
 
 const EXTENSION_ID = 'kjbhngehjkiiecaflccjenmoccielojj';
 
+/** Thrown when the user cancels a headless task in the extension. */
+export class UserCancelledError extends Error {
+  constructor() { super('Task cancelled by user'); }
+}
+
 // ── Extension messaging ────────────────────────────────────────────────────
 
 async function extensionCall(action, args) {
@@ -120,11 +125,14 @@ async function act(prompt, savedFiles = {}) {
 
   // Extract saved files from taskState (if any were downloaded during browsing)
   const files = result?.taskState?.savedFiles || {};
+  const text = result?.taskResult?.result || 'Task completed with no result.';
 
-  return {
-    text: result?.taskResult?.result || 'Task completed with no result.',
-    files,
-  };
+  // Detect user cancellation from the extension
+  if (text === 'Task cancelled by user') {
+    throw new UserCancelledError();
+  }
+
+  return { text, files };
 }
 
 // ── Planner tools ──────────────────────────────────────────────────────────
@@ -151,7 +159,7 @@ const PLANNER_TOOLS = [
     type: 'function',
     function: {
       name: 'schedule_check',
-      description: 'Schedule a recurring browser check that runs automatically on an interval.',
+      description: 'Schedule a recurring browser check that runs automatically on an interval. Optionally specify a stop condition so the check auto-completes when the goal is met.',
       parameters: {
         type: 'object',
         properties: {
@@ -162,6 +170,10 @@ const PLANNER_TOOLS = [
           intervalMs: {
             type: 'number',
             description: 'Interval in milliseconds between runs (e.g. 7200000 for 2 hours)',
+          },
+          stopCondition: {
+            type: 'string',
+            description: 'When this condition is met, the recurring check auto-completes and stops. E.g. "buyer confirms pickup", "email reply received".',
           },
         },
         required: ['prompt', 'intervalMs'],
@@ -189,7 +201,7 @@ const PLANNER_TOOLS = [
     type: 'function',
     function: {
       name: 'done',
-      description: 'The plan is complete. Return the final summary and any data to remember.',
+      description: 'The plan is complete. Return the final summary and any data to remember. For recurring scheduled tasks, set stopReached to true when the stop condition has been met so the task auto-completes.',
       parameters: {
         type: 'object',
         properties: {
@@ -200,6 +212,10 @@ const PLANNER_TOOLS = [
           memory: {
             type: 'object',
             description: 'Key data to persist for future runs (e.g. listings found, prices, URLs)',
+          },
+          stopReached: {
+            type: 'boolean',
+            description: 'Set to true when the stop condition for this recurring task has been met. The task will auto-complete and stop recurring.',
           },
         },
         required: ['summary'],
@@ -219,7 +235,8 @@ You have access to:
 Guidelines:
 - Break complex tasks into small, independent browser steps. Each browse prompt should be self-contained.
 - After a browse step, analyze the results before deciding the next step.
-- When the user asks for monitoring/follow-up, use schedule_check to set up recurring tasks.
+- When the user asks for monitoring/follow-up, use schedule_check to set up recurring tasks. If the user's request has a natural completion point (e.g. "notify me when someone replies", "check until the buyer confirms"), include a stopCondition so the task auto-completes when the goal is met.
+- For recurring tasks with a STOP CONDITION: when the condition is met, call done with stopReached=true. This will auto-complete the task and stop future runs.
 - Include specific URLs, search terms, and criteria in browse prompts — don't assume the browser agent remembers previous steps.
 - If a browse step fails, try an alternative approach before giving up.
 - Send notify_user for important intermediate results so the user stays informed.
@@ -345,6 +362,7 @@ export async function runPlan(task, onNotify) {
                 toolResult.downloadedFiles = fileNames;
               }
             } catch (err) {
+              if (err instanceof UserCancelledError) throw err;
               toolResult = { success: false, error: err.message };
             }
             break;
@@ -352,8 +370,12 @@ export async function runPlan(task, onNotify) {
 
           case 'schedule_check': {
             console.log('[planner] schedule_check:', args.prompt.slice(0, 80), 'every', args.intervalMs, 'ms');
+            let childPrompt = args.prompt;
+            if (args.stopCondition) {
+              childPrompt += `\n\nSTOP CONDITION: When this condition is met, call done with stopReached=true to auto-complete this task: ${args.stopCondition}`;
+            }
             const child = await createAndEnqueue({
-              prompt:    args.prompt,
+              prompt:    childPrompt,
               config:    task.config,
               channelId: task.channelId,
               replyToId: task.replyToId,
@@ -372,7 +394,7 @@ export async function runPlan(task, onNotify) {
           }
 
           case 'done': {
-            console.log('[planner] done');
+            console.log('[planner] done', args.stopReached ? '(stop condition reached)' : '');
             // Build conversation history for future follow-ups
             const newHistory = buildHistory(history, task.prompt, args.summary);
             return {
@@ -380,6 +402,7 @@ export async function runPlan(task, onNotify) {
               memory: args.memory || null,
               history: newHistory,
               files: collectedFiles,
+              stopReached: !!args.stopReached,
             };
           }
 
