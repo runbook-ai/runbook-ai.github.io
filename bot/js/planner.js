@@ -159,7 +159,7 @@ const PLANNER_TOOLS = [
     type: 'function',
     function: {
       name: 'schedule_check',
-      description: 'Schedule a recurring browser check that runs automatically on an interval. Optionally specify a stop condition so the check auto-completes when the goal is met.',
+      description: 'Schedule a recurring browser check that runs automatically on an interval. Always specify maxRuns to limit how many times it runs. Optionally specify a stop condition so the check auto-completes early when the goal is met.',
       parameters: {
         type: 'object',
         properties: {
@@ -171,12 +171,16 @@ const PLANNER_TOOLS = [
             type: 'number',
             description: 'Interval in milliseconds between runs (e.g. 7200000 for 2 hours)',
           },
+          maxRuns: {
+            type: 'number',
+            description: 'Maximum number of times this check will run before auto-completing. Choose based on the interval and how long monitoring makes sense (e.g. 12 runs at 2h = 1 day, 36 runs at 2h = 3 days).',
+          },
           stopCondition: {
             type: 'string',
-            description: 'When this condition is met, the recurring check auto-completes and stops. E.g. "buyer confirms pickup", "email reply received".',
+            description: 'When this condition is met, the recurring check auto-completes and stops early. E.g. "buyer confirms pickup", "email reply received".',
           },
         },
-        required: ['prompt', 'intervalMs'],
+        required: ['prompt', 'intervalMs', 'maxRuns'],
       },
     },
   },
@@ -235,7 +239,7 @@ You have access to:
 Guidelines:
 - Break complex tasks into small, independent browser steps. Each browse prompt should be self-contained.
 - After a browse step, analyze the results before deciding the next step.
-- When the user asks for monitoring/follow-up, use schedule_check to set up recurring tasks. If the user's request has a natural completion point (e.g. "notify me when someone replies", "check until the buyer confirms"), include a stopCondition so the task auto-completes when the goal is met.
+- When the user asks for monitoring/follow-up, use schedule_check to set up recurring tasks. Always set a reasonable maxRuns based on the interval and task nature (e.g. checking every 2h for a day = 12 runs, monitoring daily for a week = 7 runs). If the user's request has a natural completion point (e.g. "notify me when someone replies", "check until the buyer confirms"), include a stopCondition so the task auto-completes early when the goal is met.
 - For recurring tasks with a STOP CONDITION: when the condition is met, call done with stopReached=true. This will auto-complete the task and stop future runs.
 - Include specific URLs, search terms, and criteria in browse prompts — don't assume the browser agent remembers previous steps.
 - If a browse step fails, try an alternative approach before giving up.
@@ -369,7 +373,9 @@ export async function runPlan(task, onNotify) {
           }
 
           case 'schedule_check': {
-            console.log('[planner] schedule_check:', args.prompt.slice(0, 80), 'every', args.intervalMs, 'ms');
+            const MAX_RUNS_CAP = 100;
+            const maxRuns = Math.min(args.maxRuns || 24, MAX_RUNS_CAP);
+            console.log('[planner] schedule_check:', args.prompt.slice(0, 80), 'every', args.intervalMs, 'ms, max', maxRuns, 'runs');
             let childPrompt = args.prompt;
             if (args.stopCondition) {
               childPrompt += `\n\nSTOP CONDITION: When this condition is met, call done with stopReached=true to auto-complete this task: ${args.stopCondition}`;
@@ -381,8 +387,9 @@ export async function runPlan(task, onNotify) {
               replyToId: task.replyToId,
               createdBy: task.createdBy,
               schedule:  { type: 'every', intervalMs: args.intervalMs },
+              maxRuns,
             });
-            toolResult = { scheduled: true, taskId: child.id, intervalMs: args.intervalMs };
+            toolResult = { scheduled: true, taskId: child.id, intervalMs: args.intervalMs, maxRuns };
             break;
           }
 
