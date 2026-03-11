@@ -51,7 +51,7 @@ async function think(messages, tools) {
   }
 }
 
-const ACT_TIMEOUT_MS = 120_000; // 2 minutes max per browse step
+const ACT_TIMEOUT_MS = 300_000; // 5 minutes max per browse step
 
 /**
  * Browser action — locks the extension for the duration.
@@ -59,10 +59,6 @@ const ACT_TIMEOUT_MS = 120_000; // 2 minutes max per browse step
  */
 async function act(prompt, savedFiles = {}) {
   const s = loadSettings();
-
-  // Ensure side panel is open
-  await extensionCall('openSidePanel', {});
-  await new Promise(r => setTimeout(r, 500));
 
   // Build config and initial taskState — bundled into one call so config
   // changes are scoped and don't leak if the task fails unexpectedly.
@@ -90,7 +86,7 @@ async function act(prompt, savedFiles = {}) {
         chrome.runtime.sendMessage(EXTENSION_ID, {
           action: 'stopHeadlessTask', args: {},
         }).catch(() => {});
-        reject(new Error('Browse step timed out after 2 minutes'));
+        reject(new Error('Browse step timed out after 5 minutes'));
       }
     }, ACT_TIMEOUT_MS);
 
