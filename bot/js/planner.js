@@ -39,7 +39,7 @@ async function think(messages, tools) {
   if (freeConfig) await extensionCall('setRemoteConfig', { config: freeConfig });
 
   try {
-    const args = { messages, tools, role: 'worker', timeout: 60000 };
+    const args = { messages, tools, role: 'worker', timeout: 300000 };
     return await extensionCall('callLLMWithTools', args);
   } finally {
     // Restore original config
