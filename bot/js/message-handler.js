@@ -1,9 +1,10 @@
-import { loadSettings, getAllowedUsers, PROXY_URL } from './settings.js';
+import { loadSettings, getAllowedUsers } from './settings.js';
 import { logMessage, logSystem } from './ui.js';
 import {
   sendDiscordMessage, addReaction, openDMChannel,
   fetchDiscordMessage,
 } from './discord.js';
+import { proxyFetch } from './proxy.js';
 import {
   createAndEnqueue, listTasks, cancelTask,
   pauseTask, resumeTask, removeTask, applyFollowUp,
@@ -78,7 +79,7 @@ async function downloadAttachments(attachments) {
     }
     try {
       // Route through CORS proxy to bypass Discord CDN restrictions
-      const resp = await fetch(`${PROXY_URL}?url=${encodeURIComponent(att.url)}`);
+      const resp = await proxyFetch(att.url);
       if (!resp.ok) {
         console.warn(`[handler] proxy fetch failed for ${att.filename}: HTTP ${resp.status}`);
         continue;
