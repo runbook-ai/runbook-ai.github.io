@@ -82,10 +82,6 @@ async function act(prompt, savedFiles = {}) {
     const timer = setTimeout(() => {
       if (!settled) {
         settled = true;
-        // Try to stop the headless task
-        chrome.runtime.sendMessage(EXTENSION_ID, {
-          action: 'stopHeadlessTask', args: {},
-        }).catch(() => {});
         reject(new Error('Browse step timed out after 5 minutes'));
       }
     }, ACT_TIMEOUT_MS);
@@ -106,16 +102,6 @@ async function act(prompt, savedFiles = {}) {
         }
       });
   });
-
-  // Switch back to bot tab
-  const botUrl = document.location.href;
-  const botTab = result?.taskState?.tabs?.find(t => t.url && t.url === botUrl);
-  if (botTab?.tabId != null) {
-    chrome.runtime.sendMessage(EXTENSION_ID, {
-      action: 'switchToTab',
-      args: { tabId: botTab.tabId },
-    }).catch(() => {});
-  }
 
   // Extract saved files from taskState (if any were downloaded during browsing)
   const files = result?.taskState?.savedFiles || {};
