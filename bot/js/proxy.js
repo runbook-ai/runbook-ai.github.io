@@ -1,5 +1,4 @@
-import { PROXY_URL } from './settings.js';
-
+const PROXY_URL = 'https://proxy.runbookai.net';
 const MAX_RETRIES = 3;
 const RETRY_STATUSES = new Set([502, 503, 504]);
 
