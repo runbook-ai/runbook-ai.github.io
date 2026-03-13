@@ -251,6 +251,7 @@ function buildHistory(existingHistory, prompt, result) {
 // ── Planner loop ───────────────────────────────────────────────────────────
 
 const MAX_STEPS = 10;
+const MAX_BROWSE = 3;
 
 /**
  * Run a multi-step plan for a task.
@@ -324,6 +325,7 @@ export async function runPlan(task, onNotify) {
   }
 
   let collectedFiles = { ...(task.files || {}) };
+  let browseCount = 0;
 
   for (let step = 0; step < MAX_STEPS; step++) {
     const resp = await think(messages, PLANNER_TOOLS);
@@ -336,6 +338,11 @@ export async function runPlan(task, onNotify) {
 
         switch (call.function.name) {
           case 'browse': {
+            if (browseCount >= MAX_BROWSE) {
+              toolResult = { success: false, error: `Browse limit reached (${MAX_BROWSE}). Use the information you already have to finish the plan.` };
+              break;
+            }
+            browseCount++;
             console.log('[planner] browse:', args.prompt.slice(0, 100));
             try {
               const browseResult = await act(args.prompt, collectedFiles);
