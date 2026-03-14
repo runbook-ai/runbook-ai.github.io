@@ -263,6 +263,7 @@ const MAX_BROWSE = 5;
 export async function runPlan(task, onNotify) {
   const messages = [
     { role: 'system', content: PLANNER_SYSTEM_PROMPT },
+    { role: 'user', content: `Current date time: ${new Date().toString()}` },
   ];
 
   // Separate image files (for vision) from non-image files (metadata only)
