@@ -251,7 +251,7 @@ function buildHistory(existingHistory, prompt, result) {
 // ── Planner loop ───────────────────────────────────────────────────────────
 
 const MAX_STEPS = 10;
-const MAX_BROWSE = 3;
+const MAX_BROWSE = 5;
 
 /**
  * Run a multi-step plan for a task.
