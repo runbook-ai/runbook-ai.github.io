@@ -85,11 +85,18 @@ async function downloadAttachments(attachments) {
         continue;
       }
       const blob = await resp.blob();
+      if (blob.size > ATTACHMENT_MAX_SIZE) {
+        console.warn(`[handler] skipping attachment ${att.filename} (actual size ${blob.size} bytes > 3 MB limit)`);
+        continue;
+      }
       const arrayBuffer = await blob.arrayBuffer();
       const bytes = new Uint8Array(arrayBuffer);
-      let binary = '';
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      const base64 = btoa(binary);
+      // Process in 8 KB chunks to avoid call-stack overflow on large files
+      const chunks = [];
+      for (let i = 0; i < bytes.length; i += 8192) {
+        chunks.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 8192)));
+      }
+      const base64 = btoa(chunks.join(''));
       files[att.filename] = {
         name: att.filename,
         mimeType: att.content_type || blob.type || 'application/octet-stream',
