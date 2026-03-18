@@ -35,11 +35,16 @@ function getLogContainer() {
   return document.getElementById('logContainer');
 }
 
+const MAX_LOG_ENTRIES = 100;
+
 /** Append a DOM element to the log and scroll to the bottom. */
 export function appendLog(el) {
   document.getElementById('logEmpty')?.remove();
   const container = getLogContainer();
   container.appendChild(el);
+  while (container.children.length > MAX_LOG_ENTRIES) {
+    container.removeChild(container.firstChild);
+  }
   container.scrollTop = container.scrollHeight;
 }
 
