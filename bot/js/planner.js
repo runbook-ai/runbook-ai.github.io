@@ -375,7 +375,23 @@ export async function runPlan(task, onNotify) {
   const maxBrowse = MAX_BROWSE;
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    const resp = await think(messages, PLANNER_TOOLS);
+    let resp;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        resp = await think(messages, PLANNER_TOOLS);
+      } catch (err) {
+        if (err instanceof UserCancelledError) throw err;
+        console.warn(`[planner] think error (attempt ${attempt + 1}/5):`, err.message);
+        if (attempt < 4) { await new Promise(r => setTimeout(r, 2000)); continue; }
+        throw err;
+      }
+      if (resp.error) {
+        console.warn(`[planner] think .error (attempt ${attempt + 1}/5):`, resp.error);
+        if (attempt < 4) { await new Promise(r => setTimeout(r, 2000)); continue; }
+        throw new Error(resp.message || resp.error);
+      }
+      break;
+    }
 
     // LLM returned tool calls
     if (resp.toolCalls) {
