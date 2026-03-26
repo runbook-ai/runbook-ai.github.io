@@ -41,7 +41,22 @@ async function think(messages, tools) {
 
   try {
     const args = { messages, tools, role: 'planner', timeout: 300000 };
-    return await extensionCall('callLLMWithTools', args);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      let resp;
+      try {
+        resp = await extensionCall('callLLMWithTools', args);
+      } catch (err) {
+        console.warn(`[planner] callLLMWithTools exception (${attempt + 1}/5):`, err.message);
+        if (attempt < 4) { await new Promise(r => setTimeout(r, 2000)); continue; }
+        throw err;
+      }
+      if (resp.error) {
+        console.warn(`[planner] callLLMWithTools .error (${attempt + 1}/5):`, resp.error);
+        if (attempt < 4) { await new Promise(r => setTimeout(r, 2000)); continue; }
+        throw new Error(resp.message || resp.error);
+      }
+      return resp;
+    }
   } finally {
     // Restore original config
     if (freeConfig) {
@@ -375,23 +390,7 @@ export async function runPlan(task, onNotify) {
   const maxBrowse = MAX_BROWSE;
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    let resp;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        resp = await think(messages, PLANNER_TOOLS);
-      } catch (err) {
-        if (err instanceof UserCancelledError) throw err;
-        console.warn(`[planner] think error (attempt ${attempt + 1}/5):`, err.message);
-        if (attempt < 4) { await new Promise(r => setTimeout(r, 2000)); continue; }
-        throw err;
-      }
-      if (resp.error) {
-        console.warn(`[planner] think .error (attempt ${attempt + 1}/5):`, resp.error);
-        if (attempt < 4) { await new Promise(r => setTimeout(r, 2000)); continue; }
-        throw new Error(resp.message || resp.error);
-      }
-      break;
-    }
+    const resp = await think(messages, PLANNER_TOOLS);
 
     // LLM returned tool calls
     if (resp.toolCalls) {
