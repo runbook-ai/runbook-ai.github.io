@@ -43,10 +43,11 @@ function taskFilename(task) {
 }
 
 function parseTaskFilename(filename) {
-  // tasks/2024-03-25T00-00-00.000Z-a1b2c3.json
-  const m = filename.match(/^tasks\/(.+)-([a-z0-9]{6})\.json$/);
+  // tasks/2024-03-25T00-00-00.000Z-a1b2c3.json       (new 6-char base36)
+  // tasks/2024-03-25T00-00-00.000Z-task_762119fa-557.json (old task_uuid format)
+  const m = filename.match(/^tasks\/\d{4}-\d{2}-\d{2}T[\d-]+\.[\d]+Z-(.+)\.json$/);
   if (!m) return null;
-  return { createdAt: m[1], id: m[2] };
+  return { id: m[1] };
 }
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
