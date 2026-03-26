@@ -9,6 +9,7 @@
 
 import { loadSettings } from './settings.js';
 import { createAndEnqueue } from './task-manager.js';
+import { putTask } from './task-store.js';
 
 const EXTENSION_ID = 'kjbhngehjkiiecaflccjenmoccielojj';
 
@@ -138,29 +139,58 @@ const PLANNER_TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'schedule_check',
-      description: 'Schedule a recurring browser check that runs automatically on an interval. Always specify maxRuns to limit how many times it runs. Optionally specify a stop condition so the check auto-completes early when the goal is met.',
+      name: 'spawn_task',
+      description: 'Spawn a child task. Can be one-shot (runs once) or recurring (with schedule). The parent task can see child statuses on subsequent runs via the auto-injected CHILD TASK STATUSES context. Child tasks do not message the user — only the parent communicates via notify_user.',
       parameters: {
         type: 'object',
         properties: {
           prompt: {
             type: 'string',
-            description: 'What to check on each run',
+            description: 'The task prompt for the child. Be specific — include URLs, search terms, context. The child has no memory of the parent plan.',
           },
-          intervalMs: {
-            type: 'number',
-            description: 'Interval in milliseconds between runs (e.g. 7200000 for 2 hours)',
+          schedule: {
+            type: 'object',
+            description: 'If set, makes this a recurring task. E.g. { "type": "every", "intervalMs": 7200000 } for every 2 hours. Omit for a one-shot task.',
           },
           maxRuns: {
             type: 'number',
-            description: 'Maximum number of times this check will run before auto-completing. Choose based on the interval and how long monitoring makes sense (e.g. 12 runs at 2h = 1 day, 36 runs at 2h = 3 days).',
+            description: 'Maximum runs for recurring tasks. Choose based on interval and monitoring duration (e.g. 12 runs at 2h = 1 day). Required if schedule is set.',
           },
           stopCondition: {
             type: 'string',
-            description: 'When this condition is met, the recurring check auto-completes and stops early. E.g. "buyer confirms pickup", "email reply received".',
+            description: 'For recurring tasks: when this condition is met, the child auto-completes. E.g. "reply received", "item back in stock".',
+          },
+          context: {
+            type: 'object',
+            description: 'Initial context/memory to pass to the child (e.g. item details, URLs to monitor).',
           },
         },
-        required: ['prompt', 'intervalMs', 'maxRuns'],
+        required: ['prompt'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_schedule',
+      description: 'Make the CURRENT task recurring. After this run completes, the task will re-run on the specified interval. Use this when the current task itself needs to repeat (e.g. "check a website twice a day"). Do NOT use this if you just want to spawn a separate recurring child — use spawn_task with schedule for that.',
+      parameters: {
+        type: 'object',
+        properties: {
+          intervalMs: {
+            type: 'number',
+            description: 'Interval in milliseconds between runs (e.g. 43200000 for 12 hours)',
+          },
+          maxRuns: {
+            type: 'number',
+            description: 'Maximum number of times this task will run before auto-completing.',
+          },
+          stopCondition: {
+            type: 'string',
+            description: 'When this condition is met, call done with stopReached=true on a future run to auto-complete.',
+          },
+        },
+        required: ['intervalMs', 'maxRuns'],
       },
     },
   },
@@ -195,7 +225,7 @@ const PLANNER_TOOLS = [
           },
           memory: {
             type: 'object',
-            description: 'Key data to persist for future runs (e.g. listings found, prices, URLs)',
+            description: 'Key data to persist for future runs (e.g. items found, results, URLs)',
           },
           stopReached: {
             type: 'boolean',
@@ -212,16 +242,22 @@ const PLANNER_SYSTEM_PROMPT = `You are a task planner for Runbook AI. You break 
 
 You have access to:
 - **browse**: Execute a task in a real browser (navigate, read pages, fill forms, click). Each browse call is independent — include all necessary context in the prompt.
-- **schedule_check**: Set up a recurring automated check (e.g. monitor Gmail every 2 hours).
+- **spawn_task**: Spawn a child task (one-shot or recurring). Child tasks run independently and do NOT message the user — only you (the parent) communicate with the user. You will see child task statuses automatically on subsequent runs via CHILD TASK STATUSES context.
+- **set_schedule**: Make the CURRENT task recurring so it re-runs on an interval. Use this when the task itself needs to repeat (e.g. "check twice a day"). The task will keep running until maxRuns is reached or you call done with stopReached=true.
 - **notify_user**: Send the user a progress update mid-plan.
 - **done**: Finish the plan with a summary.
 
 Guidelines:
 - Break complex tasks into small, independent browser steps. Each browse prompt should be self-contained.
 - After a browse step, analyze the results before deciding the next step.
-- When the user asks for monitoring/follow-up, use schedule_check to set up recurring tasks. Always set a reasonable maxRuns based on the interval and task nature (e.g. checking every 2h for a day = 12 runs, monitoring daily for a week = 7 runs). If the user's request has a natural completion point (e.g. "notify me when someone replies", "check until the buyer confirms"), include a stopCondition so the task auto-completes early when the goal is met.
+- For complex multi-stage workflows, use a parent-child pattern:
+  - Use set_schedule on the parent task for the main recurring loop (e.g. checking a website periodically).
+  - Use spawn_task to create independent child tasks for per-item work (e.g. one child per result to handle follow-up actions independently).
+  - On each parent run, check CHILD TASK STATUSES to see which children completed, then notify_user with relevant updates.
+  - Child tasks are silent — they never message the user. The parent is responsible for all user communication.
 - For recurring tasks with a STOP CONDITION: when the condition is met, call done with stopReached=true. This will auto-complete the task and stop future runs.
 - Include specific URLs, search terms, and criteria in browse prompts — don't assume the browser agent remembers previous steps.
+- When spawning child tasks, include all necessary context in the prompt and context fields — children cannot see the parent's memory.
 - If a browse step fails, try an alternative approach before giving up.
 - Send notify_user for important intermediate results so the user stays informed.
 - Always end with done to provide a final summary.
@@ -263,7 +299,7 @@ const MAX_BROWSE = 5;
 export async function runPlan(task, onNotify) {
   const messages = [
     { role: 'system', content: PLANNER_SYSTEM_PROMPT },
-    { role: 'user', content: `Current date time: ${new Date().toString()}` },
+    { role: 'user', content: `Current date time: ${new Date().toString()}\nRun #${task.runCount} of this task.${task.schedule ? ' This is a recurring task.' : ''}` },
   ];
 
   // Separate image files (for vision) from non-image files (metadata only)
@@ -316,17 +352,27 @@ export async function runPlan(task, onNotify) {
     messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
   }
 
-  // Inject persistent memory (separate from conversation history)
-  const { history: _h, ...contextWithoutHistory } = (task.context || {});
-  if (Object.keys(contextWithoutHistory).length > 0) {
+  // Inject persistent memory (separate from conversation history and child statuses)
+  const { history: _h, __childStatuses: _cs, ...contextWithoutMeta } = (task.context || {});
+  if (Object.keys(contextWithoutMeta).length > 0) {
     messages.push({
       role: 'user',
-      content: `Context from prior runs:\n${JSON.stringify(contextWithoutHistory, null, 2)}`,
+      content: `Context from prior runs:\n${JSON.stringify(contextWithoutMeta, null, 2)}`,
+    });
+  }
+
+  // Inject child task statuses so the planner can react to child completions
+  const childStatuses = task.context?.__childStatuses;
+  if (childStatuses && childStatuses.length > 0) {
+    messages.push({
+      role: 'user',
+      content: `CHILD TASK STATUSES:\n${JSON.stringify(childStatuses, null, 2)}\n\nChild tasks do not message the user. Use notify_user to inform the user about important child task results.`,
     });
   }
 
   let collectedFiles = { ...(task.files || {}) };
   let browseCount = 0;
+  const maxBrowse = MAX_BROWSE;
 
   for (let step = 0; step < MAX_STEPS; step++) {
     const resp = await think(messages, PLANNER_TOOLS);
@@ -339,8 +385,8 @@ export async function runPlan(task, onNotify) {
 
         switch (call.function.name) {
           case 'browse': {
-            if (browseCount >= MAX_BROWSE) {
-              toolResult = { success: false, error: `Browse limit reached (${MAX_BROWSE}). Use the information you already have to finish the plan.` };
+            if (browseCount >= maxBrowse) {
+              toolResult = { success: false, error: `Browse limit reached (${maxBrowse}). Use the information you already have to finish the plan.` };
               break;
             }
             browseCount++;
@@ -361,10 +407,12 @@ export async function runPlan(task, onNotify) {
             break;
           }
 
-          case 'schedule_check': {
+          case 'spawn_task': {
             const MAX_RUNS_CAP = 100;
-            const maxRuns = Math.min(args.maxRuns || 24, MAX_RUNS_CAP);
-            console.log('[planner] schedule_check:', args.prompt.slice(0, 80), 'every', args.intervalMs, 'ms, max', maxRuns, 'runs');
+            const maxRuns = args.maxRuns ? Math.min(args.maxRuns, MAX_RUNS_CAP) : null;
+            const schedule = args.schedule || null;
+            console.log('[planner] spawn_task:', args.prompt.slice(0, 80),
+              schedule ? `every ${schedule.intervalMs}ms, max ${maxRuns} runs` : '(one-shot)');
             let childPrompt = args.prompt;
             if (args.stopCondition) {
               childPrompt += `\n\nSTOP CONDITION: When this condition is met, call done with stopReached=true to auto-complete this task: ${args.stopCondition}`;
@@ -375,10 +423,30 @@ export async function runPlan(task, onNotify) {
               channelId: task.channelId,
               replyToId: task.replyToId,
               createdBy: task.createdBy,
-              schedule:  { type: 'every', intervalMs: args.intervalMs },
+              schedule,
               maxRuns,
+              parentId:  task.id,
             });
-            toolResult = { scheduled: true, taskId: child.id, intervalMs: args.intervalMs, maxRuns };
+            // Pass initial context to child if provided
+            if (args.context && typeof args.context === 'object') {
+              child.context = { ...child.context, ...args.context };
+              await putTask(child);
+            }
+            toolResult = { spawned: true, taskId: child.id, schedule: schedule ? { intervalMs: schedule.intervalMs, maxRuns } : 'one-shot' };
+            break;
+          }
+
+          case 'set_schedule': {
+            const MAX_RUNS_CAP = 100;
+            const maxRuns = Math.min(args.maxRuns || 24, MAX_RUNS_CAP);
+            console.log('[planner] set_schedule: every', args.intervalMs, 'ms, max', maxRuns, 'runs');
+            task.schedule = { type: 'every', intervalMs: args.intervalMs };
+            task.maxRuns  = maxRuns;
+            if (args.stopCondition) {
+              task.prompt += `\n\nSTOP CONDITION: When this condition is met, call done with stopReached=true to auto-complete this task: ${args.stopCondition}`;
+            }
+            await putTask(task);
+            toolResult = { scheduled: true, intervalMs: args.intervalMs, maxRuns };
             break;
           }
 

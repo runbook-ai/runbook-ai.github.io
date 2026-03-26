@@ -73,7 +73,7 @@ export async function enqueueTask(task) {
 }
 
 /** Create and enqueue a new task from a user message. */
-export async function createAndEnqueue({ prompt, files, config, channelId, replyToId, createdBy, schedule, maxRuns }) {
+export async function createAndEnqueue({ prompt, files, config, channelId, replyToId, createdBy, schedule, maxRuns, parentId }) {
   const task = createTaskRecord({
     prompt,
     files: files ?? {},
@@ -83,6 +83,7 @@ export async function createAndEnqueue({ prompt, files, config, channelId, reply
     createdBy,
     schedule: schedule ?? null,
     maxRuns: maxRuns ?? null,
+    parentId: parentId ?? null,
     // First run is always immediate; nextRunAt is set after the first run completes
     nextRunAt: null,
     status: 'queued',
@@ -125,6 +126,19 @@ async function executeTask(task) {
   }
 
   try {
+    // Inject child task statuses so the planner can react to child completions
+    const children = await getChildTasks(task.id);
+    if (children.length > 0) {
+      task.context.__childStatuses = children.map(c => ({
+        id: c.id,
+        status: c.status,
+        result: c.result,
+        prompt: c.prompt.slice(0, 200),
+        runCount: c.runCount,
+        memory: c.context ? (({ history, __childStatuses, ...rest }) => rest)(c.context) : {},
+      }));
+    }
+
     // Run through the planner
     const planResult = await runPlan(task, async (message) => {
       // onNotify callback — deliver progress updates
@@ -173,12 +187,28 @@ async function executeTask(task) {
     }
     await putTask(task);
 
+    // If this child finished a run, wake the parent — but only when no siblings
+    // are still actively executing (queued/running). Children that are waiting
+    // (between recurring runs), completed, or failed are all settled states.
+    if (task.parentId && (task.status === 'completed' || task.status === 'waiting')) {
+      const siblings = await getChildTasks(task.parentId);
+      const anyActive = siblings.some(s => s.status === 'queued' || s.status === 'running');
+      if (!anyActive) {
+        const parent = await getTask(task.parentId);
+        if (parent && parent.status === 'waiting') {
+          parent.nextRunAt = Date.now(); // wake immediately on next cron tick
+          await putTask(parent);
+        }
+      }
+    }
+
     // Deliver final result
-    // For recurring scheduled tasks still waiting, skip delivery — only notify
-    // when the task completes (stop condition met or max runs reached) or
-    // when the planner explicitly used notify_user during execution.
+    // - Child tasks never deliver directly — the parent handles user communication
+    // - Recurring scheduled tasks still waiting skip delivery (quiet run)
+    // - The planner can always use notify_user during execution for mid-run updates
+    const isChildTask = !!task.parentId;
     const isQuietRun = task.schedule && task.status === 'waiting';
-    if (!isQuietRun && task.delivery !== 'silent' && task.channelId) {
+    if (!isChildTask && !isQuietRun && task.delivery !== 'silent' && task.channelId) {
       await deliver(task, task.result);
     }
 
