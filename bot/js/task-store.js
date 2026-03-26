@@ -67,7 +67,11 @@ function tx(storeName, mode) {
 // ── Task CRUD ──────────────────────────────────────────────────────────────
 
 export function generateId() {
-  return 'task_' + crypto.randomUUID().slice(0, 12);
+  const chars = '0123456789abcdefghijklmnopqrstuvwxyz';
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  let id = '';
+  for (const b of bytes) id += chars[b % 36];
+  return id;
 }
 
 export async function putTask(task) {
