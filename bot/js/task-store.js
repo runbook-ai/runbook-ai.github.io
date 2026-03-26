@@ -10,8 +10,8 @@
  *   result        - latest result text from the extension
  *   config        - extension config overrides (object)
  *   schedule      - null (one-shot) | { type: "every", intervalMs } | { type: "cron", expr } | { type: "at", time }
- *   nextRunAt     - epoch ms for next scheduled run (null if not scheduled)
- *   lastRunAt     - epoch ms of last execution (null if never run)
+ *   nextRunAt     - ISO 8601 string for next scheduled run (null if not scheduled)
+ *   lastRunAt     - ISO 8601 string of last execution (null if never run)
  *   runCount      - number of times this task has been executed
  *   maxRuns       - null (unlimited) | number
  *   consecutiveErrors - number of consecutive failures
@@ -19,14 +19,14 @@
  *   channelId     - Discord channel to deliver results
  *   replyToId     - original message ID to thread on
  *   delivery      - "announce" | "silent" | "announce-on-change"
- *   createdAt     - epoch ms
- *   updatedAt     - epoch ms
+ *   createdAt     - ISO 8601 string
+ *   updatedAt     - ISO 8601 string (auto-set by putTask)
  *   createdBy     - Discord username
  *
  */
 
 const DB_NAME    = 'runbookai_tasks';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const TASK_STORE = 'tasks';
 
 let dbPromise = null;
@@ -46,6 +46,24 @@ function openDB() {
       // v3: remove unused messageMap store
       if (db.objectStoreNames.contains('messageMap')) {
         db.deleteObjectStore('messageMap');
+      }
+      // v4: migrate epoch ms timestamps → ISO 8601 strings
+      if (event.oldVersion < 4) {
+        const store = req.transaction.objectStore(TASK_STORE);
+        store.openCursor().onsuccess = (e) => {
+          const cursor = e.target.result;
+          if (!cursor) return;
+          const task = cursor.value;
+          let changed = false;
+          for (const field of ['createdAt', 'updatedAt', 'lastRunAt', 'nextRunAt']) {
+            if (typeof task[field] === 'number') {
+              task[field] = new Date(task[field]).toISOString();
+              changed = true;
+            }
+          }
+          if (changed) cursor.update(task);
+          cursor.continue();
+        };
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -71,13 +89,20 @@ export function generateId() {
   return id;
 }
 
-export async function putTask(task) {
-  task.updatedAt = Date.now();
+export async function putTask(task, { skipTimestamp = false, skipSync = false } = {}) {
+  if (!skipTimestamp) task.updatedAt = new Date().toISOString();
   const store = await tx(TASK_STORE, 'readwrite');
   return new Promise((resolve, reject) => {
     const req = store.put(task);
-    req.onsuccess = () => resolve(task);
-    req.onerror   = () => reject(req.error);
+    req.onsuccess = () => {
+      if (!skipSync) {
+        import('./github-sync.js').then(m => {
+          if (m.isSyncEnabled()) m.pushTaskDebounced(task);
+        }).catch(() => {});
+      }
+      resolve(task);
+    };
+    req.onerror = () => reject(req.error);
   });
 }
 
@@ -90,6 +115,7 @@ export async function getTask(id) {
   });
 }
 
+// No sync hook on delete — deleted tasks are kept in GitHub as archive
 export async function deleteTask(id) {
   const store = await tx(TASK_STORE, 'readwrite');
   return new Promise((resolve, reject) => {
@@ -123,7 +149,7 @@ export async function getTasksByStatus(status) {
 export async function getDueTasks() {
   const now = Date.now();
   const waiting = await getTasksByStatus('waiting');
-  return waiting.filter(t => t.nextRunAt && t.nextRunAt <= now);
+  return waiting.filter(t => t.nextRunAt && new Date(t.nextRunAt).getTime() <= now);
 }
 
 /** Get child tasks of a given parent. */
@@ -139,7 +165,7 @@ export async function getChildTasks(parentId) {
 
 /** Create a new task with defaults. */
 export function createTaskRecord(overrides = {}) {
-  const now = Date.now();
+  const now = new Date().toISOString();
   return {
     id:                generateId(),
     parentId:          null,

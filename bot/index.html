@@ -329,6 +329,35 @@
       font-family: ui-monospace, "SFMono-Regular", monospace;
     }
 
+    /* -- GitHub Sync card -------------------------------------- */
+    .sync-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+
+    .sync-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+      font-size: 0.8125rem;
+      color: #6b7280;
+    }
+
+    .sync-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .sync-dot.synced  { background: #10b981; }
+    .sync-dot.syncing { background: #f59e0b; animation: pulse 1s infinite; }
+    .sync-dot.error   { background: #ef4444; }
+    .sync-dot.idle    { background: #d1d5db; }
+
     .site-footer {
       background: #fff;
       border-top: 1px solid #e5e7eb;
@@ -387,7 +416,7 @@
         </p>
         <div class="form-grid">
 
-          <div class="field form-full">
+          <div class="field">
             <label for="messagingApp">Messaging App</label>
             <select id="messagingApp">
               <option value="discord">Discord</option>
@@ -395,7 +424,7 @@
             <div class="field-hint">More platforms coming soon.</div>
           </div>
 
-          <div class="field form-full">
+          <div class="field">
             <label for="botToken">Bot Token</label>
             <input type="password" id="botToken" placeholder="your-bot-token-here" autocomplete="off" spellcheck="false" />
             <div class="field-hint">
@@ -418,9 +447,51 @@
           <span class="free-badge">FREE</span>
           <span class="free-hint">Rate limited — bring your own key for faster responses.</span>
         </div>
-        <div class="form-actions">
-          <button class="btn btn-primary" id="saveBtn">Save Settings</button>
-          <span class="save-ok" id="saveOk" style="display:none">OK Saved</span>
+      </div>
+    </div>
+
+    <!-- -- GitHub Sync ------------------------------------------ -->
+    <div class="card">
+      <div class="card-header clickable" id="syncToggle">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+        <h2>GitHub Sync</h2>
+        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="card-body hidden" id="syncBody">
+        <div class="form-grid">
+          <div class="field">
+            <label for="githubPat">GitHub PAT</label>
+            <input type="password" id="githubPat" placeholder="github_pat_..." autocomplete="off" spellcheck="false" />
+            <div class="field-hint">Fine-grained PAT with <code>contents:write</code> on one repo.</div>
+          </div>
+          <div class="field">
+            <label for="githubRepo">Repository</label>
+            <input type="text" id="githubRepo" placeholder="user/runbookai-backup" autocomplete="off" spellcheck="false" />
+            <div class="field-hint">owner/repo format</div>
+          </div>
+        </div>
+        <div class="free-api-row">
+          <input type="checkbox" id="autoSyncCheckbox" checked>
+          <label for="autoSyncCheckbox">Auto-sync on task changes</label>
+        </div>
+        <div class="free-api-row">
+          <input type="checkbox" id="autoBulkSyncCheckbox" checked>
+          <label for="autoBulkSyncCheckbox">Auto bulk sync every 2 hours</label>
+        </div>
+        <div class="sync-actions">
+          <button class="btn btn-ghost" id="testConnBtn">Test Connection</button>
+          <button class="btn btn-primary" id="syncNowBtn">Sync Now</button>
+          <button class="btn btn-danger" id="restoreBtn">Restore</button>
+          <span class="save-ok" id="syncOk" style="display:none"></span>
+        </div>
+        <div class="sync-status">
+          <span class="sync-dot idle" id="syncDot"></span>
+          <span id="syncStatusText">Not configured</span>
         </div>
       </div>
     </div>

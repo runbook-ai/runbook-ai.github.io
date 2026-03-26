@@ -111,7 +111,7 @@ async function drainQueue() {
 
 async function executeTask(task) {
   task.status    = 'running';
-  task.lastRunAt = Date.now();
+  task.lastRunAt = new Date().toISOString();
   task.runCount += 1;
   await putTask(task);
 
@@ -191,7 +191,7 @@ async function executeTask(task) {
       if (!anyActive) {
         const parent = await getTask(task.parentId);
         if (parent && parent.status === 'waiting') {
-          parent.nextRunAt = Date.now(); // wake immediately on next cron tick
+          parent.nextRunAt = new Date().toISOString(); // wake immediately on next cron tick
           await putTask(parent);
         }
       }
@@ -234,7 +234,7 @@ async function executeTask(task) {
 
     if (task.schedule && task.consecutiveErrors < 5) {
       task.status    = 'waiting';
-      task.nextRunAt = Date.now() + computeBackoff(task.consecutiveErrors);
+      task.nextRunAt = new Date(Date.now() + computeBackoff(task.consecutiveErrors)).toISOString();
     } else {
       task.status = 'failed';
     }

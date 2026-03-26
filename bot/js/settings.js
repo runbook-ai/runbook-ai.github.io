@@ -12,6 +12,26 @@ export function saveSettings(s) {
 }
 
 
+/** Load GitHub sync settings. */
+export function getGitHubSync() {
+  const s = loadSettings();
+  return s.githubSync ?? {
+    enabled: false,
+    pat: '',
+    repo: '',
+    branch: 'main',
+    autoSyncOnWrite: true,
+    autoBulkSync: true,
+  };
+}
+
+/** Save GitHub sync settings (merges into existing settings). */
+export function saveGitHubSync(syncSettings) {
+  const s = loadSettings();
+  s.githubSync = { ...getGitHubSync(), ...syncSettings };
+  saveSettings(s);
+}
+
 /**
  * Return the allowlist as a Set of lowercase usernames.
  * An empty Set means allow everyone.

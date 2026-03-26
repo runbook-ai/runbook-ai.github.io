@@ -19,17 +19,17 @@ let tickTimer = null;
 let cleanupTimer = null;
 let onTaskDue = null; // callback: (task) => void
 
-/** Compute the next run time for a schedule. Returns epoch ms or null. */
+/** Compute the next run time for a schedule. Returns ISO 8601 string or null. */
 export function computeNextRun(schedule, fromMs = Date.now()) {
   if (!schedule) return null;
 
   switch (schedule.type) {
     case 'every':
-      return fromMs + schedule.intervalMs;
+      return new Date(fromMs + schedule.intervalMs).toISOString();
 
     case 'at': {
       const t = new Date(schedule.time).getTime();
-      return t > fromMs ? t : null; // expired one-shots return null
+      return t > fromMs ? new Date(t).toISOString() : null;
     }
 
     default:
@@ -64,7 +64,7 @@ async function cleanup() {
     for (const status of ['completed', 'failed']) {
       const tasks = await getTasksByStatus(status);
       for (const t of tasks) {
-        const age = now - (t.lastRunAt || t.updatedAt || t.createdAt || 0);
+        const age = now - new Date(t.lastRunAt || t.updatedAt || t.createdAt || 0).getTime();
         if (age > TASK_MAX_AGE_MS) {
           await deleteTask(t.id);
           console.log(`[cron] cleaned up ${status} task ${t.id} (${Math.round(age / 86400000)}d old)`);

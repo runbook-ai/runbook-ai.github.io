@@ -1,0 +1,297 @@
+/**
+ * GitHub Sync — push/pull tasks to a GitHub repo as plain JSON files.
+ *
+ * Repo layout:
+ *   tasks/<createdAt>-<id>.json   one file per task
+ *
+ * Uses the GitHub Contents API for point-wise writes and the
+ * Git Trees API for bulk sync (single commit regardless of task count).
+ */
+
+import { getGitHubSync } from './settings.js';
+import { getAllTasks, putTask } from './task-store.js';
+
+// ── State ────────────────────────────────────────────────────────────────────
+
+const shaCache = new Map();       // taskId → { sha, filename }
+const pendingSync = new Map();    // taskId → debounce timer
+let bulkSyncTimer = null;
+
+const BULK_SYNC_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
+const DEBOUNCE_MS = 300;
+const API = 'https://api.github.com';
+
+// ── Config helpers ───────────────────────────────────────────────────────────
+
+function cfg() {
+  const gs = getGitHubSync();
+  // Parse "owner/repo" format
+  const [owner, repo] = (gs.repo || '').split('/');
+  return { ...gs, owner, repo: repo || '' };
+}
+
+export function isSyncEnabled() {
+  const gs = getGitHubSync();
+  return gs.enabled && gs.autoSyncOnWrite && !!gs.pat && !!gs.repo;
+}
+
+// ── Filename helpers ─────────────────────────────────────────────────────────
+
+function taskFilename(task) {
+  const ts = (task.createdAt || new Date().toISOString()).replace(/:/g, '-');
+  return `tasks/${ts}-${task.id}.json`;
+}
+
+function parseTaskFilename(filename) {
+  // tasks/2024-03-25T00-00-00.000Z-a1b2c3.json
+  const m = filename.match(/^tasks\/(.+)-([a-z0-9]{6})\.json$/);
+  if (!m) return null;
+  return { createdAt: m[1], id: m[2] };
+}
+
+// ── HTTP helpers ─────────────────────────────────────────────────────────────
+
+function headers() {
+  const { pat } = cfg();
+  return {
+    Authorization: `Bearer ${pat}`,
+    Accept: 'application/vnd.github+json',
+    'Content-Type': 'application/json',
+  };
+}
+
+async function githubGet(path) {
+  const { owner, repo } = cfg();
+  const res = await fetch(`${API}/repos/${owner}/${repo}/${path}`, { headers: headers() });
+  if (res.status === 404 || res.status === 409) return null;
+  if (!res.ok) throw new Error(`GitHub GET ${path}: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+async function githubPut(path, body) {
+  const { owner, repo } = cfg();
+  const res = await fetch(`${API}/repos/${owner}/${repo}/${path}`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub PUT ${path}: ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
+async function githubPost(path, body) {
+  const { owner, repo } = cfg();
+  const res = await fetch(`${API}/repos/${owner}/${repo}/${path}`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub POST ${path}: ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
+async function githubPatch(path, body) {
+  const { owner, repo } = cfg();
+  const res = await fetch(`${API}/repos/${owner}/${repo}/${path}`, {
+    method: 'PATCH',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub PATCH ${path}: ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
+// ── Point-wise sync ──────────────────────────────────────────────────────────
+
+export async function pushTask(task) {
+  const filename = taskFilename(task);
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(task, null, 2))));
+  const { branch } = cfg();
+
+  // Get SHA from cache or fetch it
+  let sha = null;
+  const cached = shaCache.get(task.id);
+  if (cached) {
+    sha = cached.sha;
+  } else {
+    const existing = await githubGet(`contents/${filename}?ref=${branch}`);
+    if (existing) sha = existing.sha;
+  }
+
+  try {
+    const result = await githubPut(`contents/${filename}`, {
+      message: `sync task ${task.id}`,
+      content,
+      sha: sha || undefined,
+      branch,
+    });
+    // Update cache with new SHA
+    shaCache.set(task.id, { sha: result.content.sha, filename });
+    return result;
+  } catch (err) {
+    // On 409 conflict, invalidate cache and retry once
+    if (err.message.includes('409')) {
+      shaCache.delete(task.id);
+      const existing = await githubGet(`contents/${filename}?ref=${branch}`);
+      const retrySha = existing?.sha;
+      const result = await githubPut(`contents/${filename}`, {
+        message: `sync task ${task.id}`,
+        content,
+        sha: retrySha || undefined,
+        branch,
+      });
+      shaCache.set(task.id, { sha: result.content.sha, filename });
+      return result;
+    }
+    throw err;
+  }
+}
+
+export function pushTaskDebounced(task) {
+  if (pendingSync.has(task.id)) clearTimeout(pendingSync.get(task.id));
+  pendingSync.set(task.id, setTimeout(() => {
+    pendingSync.delete(task.id);
+    pushTask(task).catch(err => console.warn('[github-sync] push failed:', err.message));
+  }, DEBOUNCE_MS));
+}
+
+// ── Bulk sync (Git Trees API) ────────────────────────────────────────────────
+
+export async function bulkSync() {
+  const { branch } = cfg();
+  const tasks = await getAllTasks();
+
+  // Build tree entries
+  const tree = tasks.map(task => ({
+    path: taskFilename(task),
+    mode: '100644',
+    type: 'blob',
+    content: JSON.stringify(task, null, 2),
+  }));
+
+  // Check if repo has any commits
+  const ref = await githubGet(`git/ref/heads/${branch}`);
+
+  let newTree, newCommit;
+
+  if (!ref) {
+    // Empty repo — bootstrap with Contents API (creates first commit implicitly)
+    for (const task of tasks) {
+      const filename = taskFilename(task);
+      const content = btoa(unescape(encodeURIComponent(JSON.stringify(task, null, 2))));
+      const result = await githubPut(`contents/${filename}`, {
+        message: `sync task ${task.id}`,
+        content,
+        branch,
+      });
+      shaCache.set(task.id, { sha: result.content.sha, filename });
+    }
+    return { count: tasks.length };
+  } else {
+    // Existing repo — build on top of current tree
+    const commitSha = ref.object.sha;
+    const commit = await githubGet(`git/commits/${commitSha}`);
+    const baseTreeSha = commit.tree.sha;
+
+    newTree = await githubPost('git/trees', { base_tree: baseTreeSha, tree });
+    newCommit = await githubPost('git/commits', {
+      message: `bulk sync ${tasks.length} tasks`,
+      tree: newTree.sha,
+      parents: [commitSha],
+    });
+    await githubPatch(`git/refs/heads/${branch}`, { sha: newCommit.sha });
+  }
+
+  // 6. Populate SHA cache from tree
+  for (const entry of newTree.tree) {
+    const parsed = parseTaskFilename(entry.path);
+    if (parsed) {
+      shaCache.set(parsed.id, { sha: entry.sha, filename: entry.path });
+    }
+  }
+
+  return { count: tasks.length };
+}
+
+// ── Restore ──────────────────────────────────────────────────────────────────
+
+export async function restore() {
+  const { branch } = cfg();
+
+  // 1. Get full tree
+  const ref = await githubGet(`git/ref/heads/${branch}`);
+  if (!ref) throw new Error(`Branch "${branch}" not found`);
+  const tree = await githubGet(`git/trees/${ref.object.sha}?recursive=1`);
+
+  const taskBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('tasks/'));
+
+  let restored = 0;
+  let skipped = 0;
+
+  for (const blob of taskBlobs) {
+    const parsed = parseTaskFilename(blob.path);
+    if (!parsed) continue;
+
+    // Fetch blob content
+    const blobData = await githubGet(`git/blobs/${blob.sha}`);
+    const json = decodeURIComponent(escape(atob(blobData.content)));
+    const remoteTask = JSON.parse(json);
+
+    // Check local task
+    const { getTask } = await import('./task-store.js');
+    const localTask = await getTask(remoteTask.id);
+
+    if (localTask && localTask.updatedAt >= remoteTask.updatedAt) {
+      skipped++;
+    } else {
+      await putTask(remoteTask, { skipTimestamp: true, skipSync: true });
+      restored++;
+    }
+
+    // Cache SHA
+    shaCache.set(remoteTask.id, { sha: blob.sha, filename: blob.path });
+  }
+
+  return { restored, skipped };
+}
+
+// ── Test connection ──────────────────────────────────────────────────────────
+
+export async function testConnection() {
+  const { owner, repo, pat } = cfg();
+  if (!pat) throw new Error('No PAT configured');
+  if (!owner || !repo) throw new Error('No repository configured');
+  const res = await fetch(`${API}/repos/${owner}/${repo}`, { headers: headers() });
+  if (res.status === 401) throw new Error('Invalid PAT');
+  if (res.status === 404) throw new Error('Repository not found');
+  if (!res.ok) throw new Error(`GitHub error: ${res.status}`);
+  return true;
+}
+
+// ── Bulk sync timer ──────────────────────────────────────────────────────────
+
+export function startBulkSyncTimer() {
+  if (bulkSyncTimer) return;
+  // Do NOT fire immediately — first bulk sync happens after the interval
+  bulkSyncTimer = setInterval(() => {
+    bulkSync().catch(err => console.warn('[github-sync] bulk sync failed:', err.message));
+  }, BULK_SYNC_INTERVAL);
+  console.log('[github-sync] bulk sync timer started (every 2h)');
+}
+
+export function stopBulkSyncTimer() {
+  if (bulkSyncTimer) {
+    clearInterval(bulkSyncTimer);
+    bulkSyncTimer = null;
+    console.log('[github-sync] bulk sync timer stopped');
+  }
+}
