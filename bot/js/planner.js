@@ -379,6 +379,12 @@ export async function runPlan(task, onNotify) {
 
     // LLM returned tool calls
     if (resp.toolCalls) {
+      // Push one assistant message with all tool calls (preserves thought_signature)
+      messages.push({
+        role: 'assistant',
+        tool_calls: resp.toolCalls,
+      });
+
       for (const call of resp.toolCalls) {
         const args = JSON.parse(call.function.arguments);
         let toolResult;
@@ -474,11 +480,7 @@ export async function runPlan(task, onNotify) {
             toolResult = { error: `Unknown tool: ${call.function.name}` };
         }
 
-        // Feed result back to LLM for next step
-        messages.push({
-          role: 'assistant',
-          tool_calls: [call],
-        });
+        // Feed tool result back for this call
         messages.push({
           role: 'tool',
           tool_call_id: call.id,
