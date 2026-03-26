@@ -308,9 +308,9 @@ const MAX_BROWSE = 5;
  * @returns {{ result: string, memory?: object, history: Array }}
  */
 export async function runPlan(task, onNotify) {
+  const scheduleNote = task.schedule ? ' This is a recurring task.' : '';
   const messages = [
-    { role: 'system', content: PLANNER_SYSTEM_PROMPT },
-    { role: 'user', content: `Current date time: ${new Date().toString()}\nRun #${task.runCount} of this task.${task.schedule ? ' This is a recurring task.' : ''}` },
+    { role: 'system', content: `${PLANNER_SYSTEM_PROMPT}\n\nCurrent date time: ${new Date().toString()}\nRun #${task.runCount} of this task.${scheduleNote}` },
   ];
 
   // Separate image files (for vision) from non-image files (metadata only)
