@@ -9,11 +9,14 @@
  * nextRunAt <= now, it is moved to 'queued' and picked up by the task manager.
  */
 
-import { getDueTasks } from './task-store.js';
+import { getDueTasks, getTasksByStatus, deleteTask } from './task-store.js';
 
 const TICK_INTERVAL_MS = 30_000; // check every 30s
+const CLEANUP_INTERVAL_MS = 3_600_000; // cleanup every hour
+const TASK_MAX_AGE_MS = 14 * 24 * 3_600_000; // 14 days
 
 let tickTimer = null;
+let cleanupTimer = null;
 let onTaskDue = null; // callback: (task) => void
 
 /** Compute the next run time for a schedule. Returns epoch ms or null. */
@@ -54,18 +57,41 @@ async function tick() {
   }
 }
 
+/** Delete completed/failed tasks older than TASK_MAX_AGE_MS. */
+async function cleanup() {
+  try {
+    const now = Date.now();
+    for (const status of ['completed', 'failed']) {
+      const tasks = await getTasksByStatus(status);
+      for (const t of tasks) {
+        const age = now - (t.lastRunAt || t.updatedAt || t.createdAt || 0);
+        if (age > TASK_MAX_AGE_MS) {
+          await deleteTask(t.id);
+          console.log(`[cron] cleaned up ${status} task ${t.id} (${Math.round(age / 86400000)}d old)`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[cron] cleanup error:', err);
+  }
+}
+
 /** Start the scheduler. onDue is called with each task that becomes due. */
 export function startCron(onDue) {
   onTaskDue = onDue;
   if (tickTimer) return;
   tick(); // run immediately on start
   tickTimer = setInterval(tick, TICK_INTERVAL_MS);
+  cleanup(); // run cleanup on start
+  cleanupTimer = setInterval(cleanup, CLEANUP_INTERVAL_MS);
   console.log('[cron] scheduler started');
 }
 
 export function stopCron() {
   clearInterval(tickTimer);
+  clearInterval(cleanupTimer);
   tickTimer = null;
+  cleanupTimer = null;
   onTaskDue = null;
   console.log('[cron] scheduler stopped');
 }
