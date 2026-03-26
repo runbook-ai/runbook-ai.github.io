@@ -284,17 +284,13 @@ Guidelines:
 
 /**
  * Build the conversation history array for storage.
- * On first run, history is empty so we add the initial prompt + result.
- * On follow-up runs, the prior conversation is already in history
- * (seeded from the Discord reply chain), so we just add the agent's new result.
+ * Always appends the current user prompt and the agent's result.
+ * When seeded from a reply chain, existingHistory contains prior turns
+ * but NOT the current prompt — so we always add it.
  */
 function buildHistory(existingHistory, prompt, result) {
   const newHistory = [...existingHistory];
-  // If this is the first run, add the initial user message
-  if (newHistory.length === 0) {
-    newHistory.push({ role: 'user', content: prompt });
-  }
-  // Add the agent's result
+  newHistory.push({ role: 'user', content: prompt });
   newHistory.push({ role: 'assistant', content: result });
   return newHistory;
 }
@@ -356,14 +352,16 @@ export async function runPlan(task, onNotify) {
     return parts;
   }
 
-  // Replay conversation history if this is a follow-up run
+  // Replay conversation history and add current prompt
   const history = task.context?.history || [];
   if (history.length > 0) {
     for (const turn of history) {
       messages.push({ role: turn.role, content: turn.content });
     }
+    // Add the current prompt (the message that triggered this task)
+    messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
   } else {
-    // First run — original prompt + file info + inline images
+    // First run with no history — just the prompt
     messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
   }
 

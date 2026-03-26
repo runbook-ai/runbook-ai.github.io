@@ -42,7 +42,6 @@ async function collectReplyChain(msg, botUserId, token) {
   const files = {};
   let refId = msg.message_reference?.message_id;
   const visited = new Set();
-
   while (refId && !visited.has(refId)) {
     visited.add(refId);
     const refMsg = await fetchDiscordMessage(msg.channel_id, refId, token);
@@ -250,6 +249,12 @@ export async function handleMessageCreate(msg, botUserId) {
     ({ turns: history, files: chainFiles } = await collectReplyChain(msg, botUserId, s.botToken));
   }
 
+  // Build context with reply chain history BEFORE enqueuing (avoids race with planner)
+  const context = {};
+  if (history.length > 0) {
+    context.history = history;
+  }
+
   const task = await createAndEnqueue({
     prompt:    content || '(see attached files)',
     files:     { ...chainFiles, ...files },
@@ -257,14 +262,8 @@ export async function handleMessageCreate(msg, botUserId) {
     channelId,
     replyToId: msg.id,
     createdBy: msg.author?.username,
+    context,
   });
-
-  // Seed conversation history from the reply chain
-  if (history.length > 0) {
-    task.context.history = history;
-    const { putTask } = await import('./task-store.js');
-    await putTask(task);
-  }
 }
 
 // ── Command handlers ────────────────────────────────────────────────────────
