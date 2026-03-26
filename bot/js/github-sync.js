@@ -209,12 +209,16 @@ export async function bulkSync() {
       return { count: tasks.length, skipped: true };
     }
 
+    // Re-fetch latest commit as parent (point-wise syncs may have advanced the branch)
+    const latestRef = await githubGet(`git/ref/heads/${branch}`);
+    const parentSha = latestRef?.object?.sha || commitSha;
+
     newCommit = await githubPost('git/commits', {
       message: `bulk sync ${tasks.length} tasks`,
       tree: newTree.sha,
-      parents: [commitSha],
+      parents: [parentSha],
     });
-    await githubPatch(`git/refs/heads/${branch}`, { sha: newCommit.sha });
+    await githubPatch(`git/refs/heads/${branch}`, { sha: newCommit.sha, force: true });
   }
 
   // 6. Populate SHA cache from tree
