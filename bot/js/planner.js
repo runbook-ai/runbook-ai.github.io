@@ -285,8 +285,8 @@ Guidelines:
 /**
  * Build the conversation history array for storage.
  * On first run, history is empty so we add the initial prompt + result.
- * On follow-up runs, the user's follow-up is already in history (appended
- * by applyFollowUp), so we just add the agent's new result.
+ * On follow-up runs, the prior conversation is already in history
+ * (seeded from the Discord reply chain), so we just add the agent's new result.
  */
 function buildHistory(existingHistory, prompt, result) {
   const newHistory = [...existingHistory];

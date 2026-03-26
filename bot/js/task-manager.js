@@ -11,7 +11,7 @@
 import {
   putTask, getTask, createTaskRecord,
   getTasksByStatus, getAllTasks, deleteTask,
-  getChildTasks, putMessageMapping,
+  getChildTasks,
 } from './task-store.js';
 import { computeNextRun, computeBackoff } from './cron.js';
 import { showProcessing, hideProcessing } from './ui.js';
@@ -34,12 +34,7 @@ export function setDeliveryHandler(fn) {
 async function deliver(task, message) {
   if (!deliverFn || !task.channelId) return null;
   try {
-    const sent = await deliverFn(task, message);
-    // Record the sent message in the message map for reply-chain tracing
-    if (sent?.id) {
-      await putMessageMapping(sent.id, task.id);
-    }
-    return sent;
+    return await deliverFn(task, message);
   } catch (err) {
     console.error('[task-manager] delivery failed:', err);
     return null;
@@ -257,63 +252,6 @@ async function executeTask(task) {
   } finally {
     hideProcessing();
   }
-}
-
-// ── Follow-up handling ──────────────────────────────────────────────────────
-
-/**
- * Apply a user follow-up message to an existing task.
- * Appends to conversation history and re-enqueues for immediate execution.
- *
- * @param {string} taskId - The task to follow up on
- * @param {string} userMessage - The user's follow-up message
- * @param {string} [replyToId] - The message ID to reply to (the follow-up message)
- * @returns {object|null} The updated task, or null if not found
- */
-export async function applyFollowUp(taskId, userMessage, replyToId, files) {
-  const task = await getTask(taskId);
-  if (!task) return null;
-
-  // Merge any new attached files into the task
-  if (files && Object.keys(files).length > 0) {
-    task.files = { ...(task.files || {}), ...files };
-  }
-
-  // Append user's follow-up to conversation history (with inline images if any)
-  task.context.history = task.context.history || [];
-  const imageEntries = Object.entries(files || {}).filter(([, f]) => f.mimeType?.startsWith('image/'));
-  if (imageEntries.length > 0) {
-    const parts = [{ type: 'text', text: userMessage || '(see attached images)' }];
-    for (const [name, f] of imageEntries) {
-      parts.push({
-        type: 'image_url',
-        image_url: { url: `data:${f.mimeType};base64,${f.base64}` },
-      });
-      parts.push({ type: 'text', text: `(image: ${name})` });
-    }
-    task.context.history.push({ role: 'user', content: parts });
-  } else {
-    task.context.history.push({ role: 'user', content: userMessage });
-  }
-
-  // Update replyToId so the bot's response threads to the follow-up message
-  if (replyToId) {
-    task.replyToId = replyToId;
-  }
-
-  // Propagate context updates to active child cron tasks
-  const children = await getChildTasks(taskId);
-  for (const child of children) {
-    if (child.status === 'waiting' || child.status === 'queued' || child.status === 'paused') {
-      child.context.history = task.context.history;
-      await putTask(child);
-    }
-  }
-
-  // Re-enqueue the task for immediate execution
-  await enqueueTask(task);
-
-  return task;
 }
 
 // ── Public API for commands ─────────────────────────────────────────────────

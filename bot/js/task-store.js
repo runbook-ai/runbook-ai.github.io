@@ -2,7 +2,7 @@
  * IndexedDB-backed persistent task store.
  *
  * Schema (tasks store):
- *   id            - unique task ID (task_<random>)
+ *   id            - unique task ID (6-char base36)
  *   parentId      - parent task ID if spawned by another task (null for root)
  *   status        - queued | running | waiting | completed | failed | paused
  *   prompt        - the prompt to send to the extension
@@ -23,15 +23,11 @@
  *   updatedAt     - epoch ms
  *   createdBy     - Discord username
  *
- * Schema (messageMap store):
- *   messageId     - Discord message ID (key)
- *   taskId        - task ID this message belongs to
  */
 
 const DB_NAME    = 'runbookai_tasks';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const TASK_STORE = 'tasks';
-const MSG_STORE  = 'messageMap';
 
 let dbPromise = null;
 
@@ -47,8 +43,9 @@ function openDB() {
         store.createIndex('nextRunAt', 'nextRunAt', { unique: false });
         store.createIndex('parentId', 'parentId', { unique: false });
       }
-      if (!db.objectStoreNames.contains(MSG_STORE)) {
-        db.createObjectStore(MSG_STORE, { keyPath: 'messageId' });
+      // v3: remove unused messageMap store
+      if (db.objectStoreNames.contains('messageMap')) {
+        db.deleteObjectStore('messageMap');
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -169,24 +166,4 @@ export function createTaskRecord(overrides = {}) {
   };
 }
 
-// ── Message mapping ────────────────────────────────────────────────────────
 
-/** Record a Discord message ID → task ID mapping. */
-export async function putMessageMapping(messageId, taskId) {
-  const store = await tx(MSG_STORE, 'readwrite');
-  return new Promise((resolve, reject) => {
-    const req = store.put({ messageId, taskId });
-    req.onsuccess = () => resolve();
-    req.onerror   = () => reject(req.error);
-  });
-}
-
-/** Look up the task ID for a Discord message ID. Returns { messageId, taskId } or null. */
-export async function getMessageMapping(messageId) {
-  const store = await tx(MSG_STORE, 'readonly');
-  return new Promise((resolve, reject) => {
-    const req = store.get(messageId);
-    req.onsuccess = () => resolve(req.result ?? null);
-    req.onerror   = () => reject(req.error);
-  });
-}

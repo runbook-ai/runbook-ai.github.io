@@ -7,9 +7,8 @@ import {
 import { proxyFetch } from './proxy.js';
 import {
   createAndEnqueue, listTasks, cancelTask,
-  pauseTask, resumeTask, applyFollowUp,
+  pauseTask, resumeTask,
 } from './task-manager.js';
-import { putMessageMapping, getMessageMapping } from './task-store.js';
 
 // ── Interval parsing ────────────────────────────────────────────────────────
 
@@ -31,30 +30,49 @@ function formatMs(ms) {
   return (ms / 1000).toFixed(0) + 's';
 }
 
-// ── Reply-chain tracing ────────────────────────────────────────────────────
+// ── Reply-chain conversation builder ──────────────────────────────────────
 
 /**
- * Walk up the Discord reply chain to find the task ID this message belongs to.
- * Returns the task ID or null if this is a new conversation.
+ * Walk up the Discord reply chain and collect the conversation as
+ * { role: 'user'|'assistant', content } turns (oldest first).
+ * Returns the conversation array, or [] if no reply chain.
  */
-async function traceTaskFromReply(msg, token) {
+async function collectReplyChain(msg, botUserId, token) {
+  const turns = [];
+  const files = {};
   let refId = msg.message_reference?.message_id;
   const visited = new Set();
 
   while (refId && !visited.has(refId)) {
     visited.add(refId);
-
-    // Check if this message is mapped to a task
-    const mapping = await getMessageMapping(refId);
-    if (mapping) return mapping.taskId;
-
-    // Fetch the referenced message to continue the chain
     const refMsg = await fetchDiscordMessage(msg.channel_id, refId, token);
     if (!refMsg) break;
+
+    const role = refMsg.author?.id === botUserId ? 'assistant' : 'user';
+    const text = refMsg.content?.trim() || '';
+
+    // Download attachments from this message in the chain
+    const msgFiles = await downloadAttachments(refMsg.attachments);
+    Object.assign(files, msgFiles);
+
+    // Build content: text-only or multimodal with images
+    const imageEntries = Object.entries(msgFiles).filter(([, f]) => f.mimeType?.startsWith('image/'));
+    if (imageEntries.length > 0) {
+      const parts = [];
+      if (text) parts.push({ type: 'text', text });
+      for (const [name, f] of imageEntries) {
+        parts.push({ type: 'image_url', image_url: { url: `data:${f.mimeType};base64,${f.base64}` } });
+        parts.push({ type: 'text', text: `(image: ${name})` });
+      }
+      turns.unshift({ role, content: parts });
+    } else if (text) {
+      turns.unshift({ role, content: text });
+    }
+
     refId = refMsg.message_reference?.message_id;
   }
 
-  return null;
+  return { turns, files };
 }
 
 // ── Attachment downloading ─────────────────────────────────────────────────
@@ -222,50 +240,30 @@ export async function handleMessageCreate(msg, botUserId) {
 
   // ── Free-form message ─────────────────────────────────────────────────
 
-  // Check if this is a reply to an existing task (follow-up)
-  if (msg.message_reference) {
-    console.log('[message-handler] reply detected, ref:', msg.message_reference.message_id);
-    const taskId = await traceTaskFromReply(msg, s.botToken);
-    if (taskId) {
-      console.log('[message-handler] follow-up for task:', taskId);
-      await handleFollowUp(taskId, msg, channelId, s);
-      return;
-    }
-    console.log('[message-handler] reply chain did not resolve to a task, treating as new');
-  }
-
-  // New task — download any attachments first
   addReaction(channelId, msg.id, '%F0%9F%91%8D', s.botToken); // 👍
   const files = await downloadAttachments(msg.attachments);
+
+  // If replying to an existing conversation, collect the reply chain as history
+  let history = [];
+  let chainFiles = {};
+  if (msg.message_reference) {
+    ({ turns: history, files: chainFiles } = await collectReplyChain(msg, botUserId, s.botToken));
+  }
+
   const task = await createAndEnqueue({
     prompt:    content || '(see attached files)',
-    files,
+    files:     { ...chainFiles, ...files },
     config:    {},
     channelId,
     replyToId: msg.id,
     createdBy: msg.author?.username,
   });
-  // Record user's message → task mapping
-  await putMessageMapping(msg.id, task.id);
-}
 
-// ── Follow-up handler ────────────────────────────────────────────────────────
-
-async function handleFollowUp(taskId, msg, channelId, s) {
-  addReaction(channelId, msg.id, '%F0%9F%91%8D', s.botToken); // 👍
-
-  // Record this message in the mapping
-  await putMessageMapping(msg.id, taskId);
-
-  // Download any new attachments
-  const files = await downloadAttachments(msg.attachments);
-
-  // Append to conversation history and re-enqueue for immediate execution.
-  // The planner will see the full conversation and respond accordingly.
-  const task = await applyFollowUp(taskId, msg.content.trim(), msg.id, files);
-  if (!task) {
-    await sendDiscordMessage(channelId, 'Could not find the related task.', s.botToken, msg.id);
-    return;
+  // Seed conversation history from the reply chain
+  if (history.length > 0) {
+    task.context.history = history;
+    const { putTask } = await import('./task-store.js');
+    await putTask(task);
   }
 }
 
@@ -293,7 +291,6 @@ async function handleRunCommand(msg, channelId, runbookName, extraPrompt, s) {
       replyToId: msg.id,
       createdBy: msg.author?.username,
     });
-    await putMessageMapping(msg.id, task.id);
   } catch (err) {
     logSystem(err.message, 'error-msg');
     try { await sendDiscordMessage(channelId, `Error: ${err.message}`, s.botToken, msg.id); } catch {}
@@ -320,11 +317,8 @@ async function handleScheduleCommand(msg, channelId, intervalStr, prompt, s) {
     createdBy: msg.author?.username,
     schedule:  { type: 'every', intervalMs },
   });
-  await putMessageMapping(msg.id, task.id);
-
   const reply = `Scheduled task \`${task.id}\` to run every ${formatMs(intervalMs)}.\nFirst run starting now.`;
-  const sent = await sendDiscordMessage(channelId, reply, s.botToken, msg.id);
-  if (sent?.id) await putMessageMapping(sent.id, task.id);
+  await sendDiscordMessage(channelId, reply, s.botToken, msg.id);
   logMessage({ channel_id: channelId, content: reply }, 'outgoing');
 }
 
