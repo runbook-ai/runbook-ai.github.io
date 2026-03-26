@@ -203,6 +203,12 @@ export async function bulkSync() {
     const baseTreeSha = commit.tree.sha;
 
     newTree = await githubPost('git/trees', { base_tree: baseTreeSha, tree });
+
+    // Skip commit if tree is unchanged (no actual changes)
+    if (newTree.sha === baseTreeSha) {
+      return { count: tasks.length, skipped: true };
+    }
+
     newCommit = await githubPost('git/commits', {
       message: `bulk sync ${tasks.length} tasks`,
       tree: newTree.sha,
