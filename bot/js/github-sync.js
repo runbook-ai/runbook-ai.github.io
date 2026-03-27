@@ -253,6 +253,8 @@ export async function restore() {
 
   const taskBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('tasks/'));
 
+  const TASK_MAX_AGE_MS = 14 * 24 * 3_600_000; // 14 days — same as cron cleanup
+  const now = Date.now();
   let restored = 0;
   let skipped = 0;
 
@@ -264,6 +266,13 @@ export async function restore() {
     const blobData = await githubGet(`git/blobs/${blob.sha}`);
     const json = decodeURIComponent(escape(atob(blobData.content)));
     const remoteTask = JSON.parse(json);
+
+    // Skip tasks older than TTL
+    const taskTime = new Date(remoteTask.lastRunAt || remoteTask.updatedAt || remoteTask.createdAt || 0).getTime();
+    if (now - taskTime > TASK_MAX_AGE_MS) {
+      skipped++;
+      continue;
+    }
 
     // Check local task
     const { getTask } = await import('./task-store.js');
