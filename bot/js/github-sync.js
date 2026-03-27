@@ -171,13 +171,21 @@ export async function bulkSync() {
   const { branch } = cfg();
   const tasks = await getAllTasks();
 
-  // Build tree entries
-  const tree = tasks.map(task => ({
-    path: taskFilename(task),
-    mode: '100644',
-    type: 'blob',
-    content: JSON.stringify(task, null, 2),
-  }));
+  // Build tree entries — create blobs first to avoid the ~40 KB inline content limit
+  const tree = [];
+  for (const task of tasks) {
+    const content = JSON.stringify(task, null, 2);
+    const blob = await githubPost('git/blobs', {
+      content: btoa(unescape(encodeURIComponent(content))),
+      encoding: 'base64',
+    });
+    tree.push({
+      path: taskFilename(task),
+      mode: '100644',
+      type: 'blob',
+      sha: blob.sha,
+    });
+  }
 
   // Check if repo has any commits
   const ref = await githubGet(`git/ref/heads/${branch}`);
