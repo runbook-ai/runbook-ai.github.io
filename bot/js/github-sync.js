@@ -10,6 +10,10 @@
 
 import { getGitHubSync } from './settings.js';
 import { getAllTasks, putTask } from './task-store.js';
+import {
+  loadMemoryMd, saveMemoryMd, getMemoryMdTimestamp,
+  getAllDailyMemories, putDailyMemory,
+} from './memory-store.js';
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -187,6 +191,26 @@ export async function bulkSync() {
     });
   }
 
+  // Add MEMORY.md
+  const memoryMd = loadMemoryMd();
+  const memoryMdTs = getMemoryMdTimestamp() || new Date().toISOString();
+  const memoryMdContent = JSON.stringify({ content: memoryMd, updatedAt: memoryMdTs });
+  const memoryMdBlob = await githubPost('git/blobs', {
+    content: btoa(unescape(encodeURIComponent(memoryMdContent))),
+    encoding: 'base64',
+  });
+  tree.push({ path: 'memory/MEMORY.md.json', mode: '100644', type: 'blob', sha: memoryMdBlob.sha });
+
+  // Add daily memory files
+  const dailyMemories = await getAllDailyMemories();
+  for (const mem of dailyMemories) {
+    const blob = await githubPost('git/blobs', {
+      content: btoa(unescape(encodeURIComponent(JSON.stringify(mem)))),
+      encoding: 'base64',
+    });
+    tree.push({ path: `memory/${mem.date}.json`, mode: '100644', type: 'blob', sha: blob.sha });
+  }
+
   // Check if repo has any commits
   const ref = await githubGet(`git/ref/heads/${branch}`);
 
@@ -203,6 +227,15 @@ export async function bulkSync() {
         branch,
       });
       shaCache.set(task.id, { sha: result.content.sha, filename });
+    }
+    // Also bootstrap memory files
+    for (const entry of tree.filter(e => e.path.startsWith('memory/'))) {
+      const blobData = await githubGet(`git/blobs/${entry.sha}`);
+      await githubPut(`contents/${entry.path}`, {
+        message: `sync ${entry.path}`,
+        content: blobData.content,
+        branch,
+      });
     }
     return { count: tasks.length };
   } else {
@@ -223,7 +256,7 @@ export async function bulkSync() {
     const parentSha = latestRef?.object?.sha || commitSha;
 
     newCommit = await githubPost('git/commits', {
-      message: `bulk sync ${tasks.length} tasks`,
+      message: `bulk sync ${tasks.length} tasks + memory`,
       tree: newTree.sha,
       parents: [parentSha],
     });
@@ -252,12 +285,14 @@ export async function restore() {
   const tree = await githubGet(`git/trees/${ref.object.sha}?recursive=1`);
 
   const taskBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('tasks/'));
+  const memoryBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('memory/'));
 
   const TASK_MAX_AGE_MS = 14 * 24 * 3_600_000; // 14 days — same as cron cleanup
   const now = Date.now();
   let restored = 0;
   let skipped = 0;
 
+  // Restore tasks
   for (const blob of taskBlobs) {
     const parsed = parseTaskFilename(blob.path);
     if (!parsed) continue;
@@ -287,6 +322,33 @@ export async function restore() {
 
     // Cache SHA
     shaCache.set(remoteTask.id, { sha: blob.sha, filename: blob.path });
+  }
+
+  // Restore memory
+  for (const blob of memoryBlobs) {
+    const blobData = await githubGet(`git/blobs/${blob.sha}`);
+    const json = decodeURIComponent(escape(atob(blobData.content)));
+    const remote = JSON.parse(json);
+
+    if (blob.path === 'memory/MEMORY.md.json') {
+      // MEMORY.md — restore if remote is newer
+      const localTs = getMemoryMdTimestamp();
+      if (!localTs || (remote.updatedAt && remote.updatedAt > localTs)) {
+        saveMemoryMd(remote.content || '');
+        restored++;
+      } else {
+        skipped++;
+      }
+    } else if (blob.path.match(/^memory\/\d{4}-\d{2}-\d{2}\.json$/)) {
+      // Daily memory — only restore within TTL
+      const memDate = new Date(remote.date + 'T00:00:00Z').getTime();
+      if (now - memDate > TASK_MAX_AGE_MS) {
+        skipped++;
+        continue;
+      }
+      await putDailyMemory(remote);
+      restored++;
+    }
   }
 
   return { restored, skipped };

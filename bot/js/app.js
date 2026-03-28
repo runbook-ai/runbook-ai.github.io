@@ -4,6 +4,7 @@ import { startCron } from './cron.js';
 import { enqueueTask, rehydrate, setDeliveryHandler, setTypingHandler } from './task-manager.js';
 import { sendDiscordMessage, triggerTyping } from './discord.js';
 import { logMessage } from './ui.js';
+import { loadMemoryMd, saveMemoryMd, getDailyMemories, clearDailyMemories } from './memory-store.js';
 
 // -- Settings form -------------------------------------------------------------
 
@@ -219,6 +220,65 @@ document.getElementById('restoreBtn').addEventListener('click', async () => {
     import('./github-sync.js').then(m => m.startBulkSyncTimer()).catch(console.warn);
   }
 })();
+
+// -- Memory card ---------------------------------------------------------------
+
+// Toggle
+document.getElementById('memoryToggle').addEventListener('click', () => {
+  const hdr  = document.getElementById('memoryToggle');
+  const body = document.getElementById('memoryBody');
+  const open = hdr.classList.contains('open');
+  hdr.classList.toggle('open', !open);
+  body.classList.toggle('hidden', open);
+  // Refresh learnings list when opening
+  if (!open) renderLearnings();
+});
+
+// Load MEMORY.md on startup
+document.getElementById('memoryMdEditor').value = loadMemoryMd();
+
+// Save MEMORY.md
+document.getElementById('saveMemoryMdBtn').addEventListener('click', () => {
+  saveMemoryMd(document.getElementById('memoryMdEditor').value);
+  const ok = document.getElementById('memoryMdOk');
+  ok.style.display = 'inline';
+  setTimeout(() => { ok.style.display = 'none'; }, 2000);
+});
+
+// Render learnings list
+async function renderLearnings() {
+  const container = document.getElementById('learningsList');
+  const memories = await getDailyMemories(30);
+  const withContent = memories.filter(m => m.content.trim());
+
+  if (withContent.length === 0) {
+    container.innerHTML = '<div class="memory-empty">No learnings yet. The bot saves insights after completing tasks.</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+  for (const m of withContent) {
+    const lines = m.content.trim().split('\n').filter(Boolean);
+    const dateEl = document.createElement('div');
+    dateEl.className = 'memory-date';
+    dateEl.innerHTML = `<svg class="chevron-sm" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> ${m.date} (${lines.length} ${lines.length === 1 ? 'entry' : 'entries'})`;
+    dateEl.addEventListener('click', () => dateEl.classList.toggle('open'));
+
+    const entriesEl = document.createElement('div');
+    entriesEl.className = 'memory-entries';
+    entriesEl.textContent = m.content.trim();
+
+    container.appendChild(dateEl);
+    container.appendChild(entriesEl);
+  }
+}
+
+// Clear all learnings
+document.getElementById('clearLearningsBtn').addEventListener('click', async () => {
+  if (!confirm('Clear all learnings? This empties daily memory files. Click Sync Now to push to GitHub.')) return;
+  await clearDailyMemories();
+  renderLearnings();
+});
 
 // -- Auto-connect on load if credentials are already saved ---------------------
 

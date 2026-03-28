@@ -16,6 +16,7 @@ import {
 import { computeNextRun, computeBackoff } from './cron.js';
 import { showProcessing, hideProcessing } from './ui.js';
 import { runPlan, UserCancelledError } from './planner.js';
+import { appendDailyMemory } from './memory-store.js';
 
 // ── Delivery callback ──────────────────────────────────────────────────────
 
@@ -154,6 +155,13 @@ async function executeTask(task) {
     // Merge memory from the plan into persistent context
     if (planResult.memory && typeof planResult.memory === 'object') {
       task.context = { ...task.context, ...planResult.memory };
+    }
+
+    // Flush learnings to global daily memory
+    if (planResult.learnings && Array.isArray(planResult.learnings) && planResult.learnings.length > 0) {
+      appendDailyMemory(planResult.learnings).catch(err => {
+        console.warn('[task-manager] failed to save learnings:', err);
+      });
     }
 
     // Save conversation history for follow-up runs

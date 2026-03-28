@@ -10,6 +10,7 @@
 import { loadSettings } from './settings.js';
 import { createAndEnqueue } from './task-manager.js';
 import { putTask } from './task-store.js';
+import { buildMemoryContext } from './memory-store.js';
 
 const EXTENSION_ID = 'kjbhngehjkiiecaflccjenmoccielojj';
 
@@ -240,7 +241,12 @@ const PLANNER_TOOLS = [
           },
           memory: {
             type: 'object',
-            description: 'Key data to persist for future runs (e.g. items found, results, URLs)',
+            description: 'Key data to persist for future runs of this task (e.g. items found, results, URLs)',
+          },
+          learnings: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Key learnings to remember across all future tasks (e.g. user preferences, useful URLs, important facts). Each entry is one standalone insight.',
           },
           stopReached: {
             type: 'boolean',
@@ -260,7 +266,7 @@ You have access to:
 - **spawn_task**: Spawn a child task (one-shot or recurring). Child tasks run independently and do NOT message the user — only you (the parent) communicate with the user. You will see child task statuses automatically on subsequent runs via CHILD TASK STATUSES context.
 - **set_schedule**: Make the CURRENT task recurring so it re-runs on an interval. Use this when the task itself needs to repeat (e.g. "check twice a day"). The task will keep running until maxRuns is reached or you call done with stopReached=true.
 - **notify_user**: Send the user a progress update mid-plan.
-- **done**: Finish the plan with a summary.
+- **done**: Finish the plan with a summary. Include **learnings** for any useful insights worth remembering across future tasks (e.g. user preferences discovered, useful URLs, key facts, site structures).
 
 Guidelines:
 - Break complex tasks into small, independent browser steps. Each browse prompt should be self-contained.
@@ -309,8 +315,9 @@ const MAX_BROWSE = 5;
  */
 export async function runPlan(task, onNotify) {
   const scheduleNote = task.schedule ? ' This is a recurring task.' : '';
+  const memoryContext = await buildMemoryContext();
   const messages = [
-    { role: 'system', content: `${PLANNER_SYSTEM_PROMPT}\n\nCurrent date time: ${new Date().toString()}\nRun #${task.runCount} of this task.${scheduleNote}` },
+    { role: 'system', content: `${PLANNER_SYSTEM_PROMPT}${memoryContext}\n\nCurrent date time: ${new Date().toString()}\nRun #${task.runCount} of this task.${scheduleNote}` },
   ];
 
   // Separate image files (for vision) from non-image files (metadata only)
@@ -483,6 +490,7 @@ export async function runPlan(task, onNotify) {
             return {
               result: args.summary,
               memory: args.memory || null,
+              learnings: args.learnings || null,
               history: newHistory,
               files: collectedFiles,
               stopReached: !!args.stopReached,
