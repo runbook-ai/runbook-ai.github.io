@@ -152,9 +152,15 @@ async function executeTask(task) {
     task.consecutiveErrors = 0;
     task.lastError         = null;
 
-    // Merge memory from the plan into persistent context
+    // Replace memory — model returns full snapshot each run, old fields are discarded
     if (planResult.memory && typeof planResult.memory === 'object') {
-      task.context = { ...task.context, ...planResult.memory };
+      const { history, __childStatuses, __runSummary } = task.context;
+      task.context = { history, __childStatuses, __runSummary, ...planResult.memory };
+    }
+
+    // Save cumulative run summary for recurring tasks
+    if (planResult.runSummary) {
+      task.context.__runSummary = planResult.runSummary;
     }
 
     // Flush learnings to global daily memory
@@ -162,11 +168,6 @@ async function executeTask(task) {
       appendDailyMemory(planResult.learnings).catch(err => {
         console.warn('[task-manager] failed to save learnings:', err);
       });
-    }
-
-    // Save conversation history for follow-up runs
-    if (planResult.history) {
-      task.context.history = planResult.history;
     }
 
     // Decide next state

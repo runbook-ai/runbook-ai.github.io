@@ -241,7 +241,11 @@ const PLANNER_TOOLS = [
           },
           memory: {
             type: 'object',
-            description: 'Key data to persist for future runs of this task (e.g. items found, results, URLs)',
+            description: 'Structured data to persist for future runs of this task (e.g. items found, prices, URLs). This REPLACES all previous memory — include everything you want to keep, not just new findings.',
+          },
+          runSummary: {
+            type: 'string',
+            description: 'For recurring tasks: a cumulative summary of all runs so far including this one. You will see the previous runSummary on the next run — update it to cover all runs. Keep it concise but comprehensive.',
           },
           learnings: {
             type: 'array',
@@ -286,21 +290,6 @@ Guidelines:
 - IMPORTANT: Prefer lightweight pages. When gathering info, read aggregator/summary pages (HN comments, search results, API endpoints) rather than navigating to heavy media-rich external sites. Heavy pages can freeze the browser.
 - If the user input contains <subTask>...</subTask> or <forEachItem>...</forEachItem> notations, pass them as-is to the browse tool prompt. Do not interpret, expand, or strip these tags — they are processed downstream by the browser agent.`;
 
-// ── Conversation history ───────────────────────────────────────────────────
-
-/**
- * Build the conversation history array for storage.
- * Always appends the current user prompt and the agent's result.
- * When seeded from a reply chain, existingHistory contains prior turns
- * but NOT the current prompt — so we always add it.
- */
-function buildHistory(existingHistory, prompt, result) {
-  const newHistory = [...existingHistory];
-  newHistory.push({ role: 'user', content: prompt });
-  newHistory.push({ role: 'assistant', content: result });
-  return newHistory;
-}
-
 // ── Planner loop ───────────────────────────────────────────────────────────
 
 const MAX_STEPS = 10;
@@ -311,7 +300,7 @@ const MAX_BROWSE = 5;
  *
  * @param {object} task - The task record
  * @param {function} onNotify - Called with (message) to deliver user notifications
- * @returns {{ result: string, memory?: object, history: Array }}
+ * @returns {{ result: string, memory?: object, runSummary?: string, learnings?: string[], files?: object, stopReached?: boolean }}
  */
 export async function runPlan(task, onNotify) {
   const scheduleNote = task.schedule ? ' This is a recurring task.' : '';
@@ -359,21 +348,26 @@ export async function runPlan(task, onNotify) {
     return parts;
   }
 
-  // Replay conversation history and add current prompt
+  // Replay conversation history (reply-chain from Discord) and add current prompt
   const history = task.context?.history || [];
   if (history.length > 0) {
     for (const turn of history) {
       messages.push({ role: turn.role, content: turn.content });
     }
-    // Add the current prompt (the message that triggered this task)
-    messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
-  } else {
-    // First run with no history — just the prompt
-    messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
+  }
+  messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
+
+  // Inject run summary from previous runs (replaces growing history for recurring tasks)
+  const runSummary = task.context?.__runSummary;
+  if (runSummary) {
+    messages.push({
+      role: 'user',
+      content: `Summary of previous runs (runs 1-${task.runCount - 1}):\n${runSummary}`,
+    });
   }
 
-  // Inject persistent memory (separate from conversation history and child statuses)
-  const { history: _h, __childStatuses: _cs, ...contextWithoutMeta } = (task.context || {});
+  // Inject persistent structured memory (separate from meta fields)
+  const { history: _h, __childStatuses: _cs, __runSummary: _rs, ...contextWithoutMeta } = (task.context || {});
   if (Object.keys(contextWithoutMeta).length > 0) {
     messages.push({
       role: 'user',
@@ -485,13 +479,11 @@ export async function runPlan(task, onNotify) {
 
           case 'done': {
             console.log('[planner] done', args.stopReached ? '(stop condition reached)' : '');
-            // Build conversation history for future follow-ups
-            const newHistory = buildHistory(history, task.prompt, args.summary);
             return {
               result: args.summary,
               memory: args.memory || null,
+              runSummary: args.runSummary || null,
               learnings: args.learnings || null,
-              history: newHistory,
               files: collectedFiles,
               stopReached: !!args.stopReached,
             };
@@ -513,18 +505,15 @@ export async function runPlan(task, onNotify) {
 
     // LLM responded with plain text — treat as done
     if (resp.result?.text) {
-      const newHistory = buildHistory(history, task.prompt, resp.result.text);
-      return { result: resp.result.text, history: newHistory, files: collectedFiles };
+      return { result: resp.result.text, files: collectedFiles };
     }
     if (resp.result && typeof resp.result === 'object') {
-      const text = JSON.stringify(resp.result);
-      const newHistory = buildHistory(history, task.prompt, text);
-      return { result: text, history: newHistory };
+      return { result: JSON.stringify(resp.result) };
     }
 
     // Unexpected response
-    return { result: 'Plan ended unexpectedly.', history };
+    return { result: 'Plan ended unexpectedly.' };
   }
 
-  return { result: 'Plan reached maximum steps.', history };
+  return { result: 'Plan reached maximum steps.' };
 }
