@@ -270,7 +270,10 @@ You have access to:
 - **spawn_task**: Spawn a child task (one-shot or recurring). Child tasks run independently and do NOT message the user — only you (the parent) communicate with the user. You will see child task statuses automatically on subsequent runs via CHILD TASK STATUSES context.
 - **set_schedule**: Make the CURRENT task recurring so it re-runs on an interval. Use this when the task itself needs to repeat (e.g. "check twice a day"). The task will keep running until maxRuns is reached or you call done with stopReached=true.
 - **notify_user**: Send the user a progress update mid-plan.
-- **done**: Finish the plan with a summary. Include **learnings** for any useful insights worth remembering across future tasks (e.g. user preferences discovered, useful URLs, key facts, site structures).
+- **done**: Finish the plan with a summary. Always populate these fields when relevant:
+  - **memory**: structured data for future runs of THIS task (replaces previous memory entirely — include everything to keep)
+  - **runSummary**: for recurring tasks, a cumulative prose summary covering ALL runs so far (you'll see the previous one on the next run — update it)
+  - **learnings**: insights worth remembering across ALL future tasks (user preferences, useful URLs, key facts)
 
 Guidelines:
 - Break complex tasks into small, independent browser steps. Each browse prompt should be self-contained.
@@ -286,6 +289,7 @@ Guidelines:
 - If a browse step fails, try an alternative approach before giving up.
 - Send notify_user for important intermediate results so the user stays informed.
 - Always end with done to provide a final summary.
+- For recurring tasks: ALWAYS include runSummary and memory in done(). runSummary should cover all runs including the current one. memory should contain structured state you need on the next run.
 - This may be a multi-turn conversation. Prior messages show what the user asked before and what you found. Use that context to handle follow-up requests (e.g. "reply to email 2" refers to an email listed in a previous response).
 - IMPORTANT: Prefer lightweight pages. When gathering info, read aggregator/summary pages (HN comments, search results, API endpoints) rather than navigating to heavy media-rich external sites. Heavy pages can freeze the browser.
 - If the user input contains <subTask>...</subTask> or <forEachItem>...</forEachItem> notations, pass them as-is to the browse tool prompt. Do not interpret, expand, or strip these tags — they are processed downstream by the browser agent.`;
