@@ -371,7 +371,7 @@ export async function runPlan(task, onNotify) {
   }
 
   // Inject persistent structured memory (separate from meta fields)
-  const { history: _h, __childStatuses: _cs, __runSummary: _rs, ...contextWithoutMeta } = (task.context || {});
+  const { history: _h, __childStatuses: _cs, __runSummary: _rs, __trajectory: _tr, ...contextWithoutMeta } = (task.context || {});
   if (Object.keys(contextWithoutMeta).length > 0) {
     messages.push({
       role: 'user',
@@ -488,6 +488,7 @@ export async function runPlan(task, onNotify) {
               memory: args.memory || null,
               runSummary: args.runSummary || null,
               learnings: args.learnings || null,
+              trajectory: messages,
               files: collectedFiles,
               stopReached: !!args.stopReached,
             };
@@ -509,15 +510,15 @@ export async function runPlan(task, onNotify) {
 
     // LLM responded with plain text — treat as done
     if (resp.result?.text) {
-      return { result: resp.result.text, files: collectedFiles };
+      return { result: resp.result.text, trajectory: messages, files: collectedFiles };
     }
     if (resp.result && typeof resp.result === 'object') {
-      return { result: JSON.stringify(resp.result) };
+      return { result: JSON.stringify(resp.result), trajectory: messages };
     }
 
     // Unexpected response
-    return { result: 'Plan ended unexpectedly.' };
+    return { result: 'Plan ended unexpectedly.', trajectory: messages };
   }
 
-  return { result: 'Plan reached maximum steps.' };
+  return { result: 'Plan reached maximum steps.', trajectory: messages };
 }

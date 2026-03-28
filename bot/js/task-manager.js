@@ -154,8 +154,8 @@ async function executeTask(task) {
 
     // Replace memory — model returns full snapshot each run, old fields are discarded
     if (planResult.memory && typeof planResult.memory === 'object') {
-      const { history, __childStatuses, __runSummary } = task.context;
-      task.context = { history, __childStatuses, __runSummary, ...planResult.memory };
+      const { history, __childStatuses, __runSummary, __trajectory } = task.context;
+      task.context = { history, __childStatuses, __runSummary, __trajectory, ...planResult.memory };
     }
 
     // Save cumulative run summary for recurring tasks
@@ -168,6 +168,11 @@ async function executeTask(task) {
       appendDailyMemory(planResult.learnings).catch(err => {
         console.warn('[task-manager] failed to save learnings:', err);
       });
+    }
+
+    // Save full planner trajectory (last run only)
+    if (planResult.trajectory) {
+      task.context.__trajectory = planResult.trajectory;
     }
 
     // Decide next state
