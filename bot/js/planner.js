@@ -129,7 +129,8 @@ async function act(prompt, savedFiles = {}) {
     throw new UserCancelledError();
   }
 
-  return { text, files };
+  const browseTrajectory = result?.taskState?.messages || null;
+  return { text, files, browseTrajectory };
 }
 
 // ── Planner tools ──────────────────────────────────────────────────────────
@@ -371,7 +372,7 @@ export async function runPlan(task, onNotify) {
   }
 
   // Inject persistent structured memory (separate from meta fields)
-  const { history: _h, __childStatuses: _cs, __runSummary: _rs, __trajectory: _tr, ...contextWithoutMeta } = (task.context || {});
+  const { history: _h, __childStatuses: _cs, __runSummary: _rs, __trajectory: _tr, __browseTrajectories: _bt, ...contextWithoutMeta } = (task.context || {});
   if (Object.keys(contextWithoutMeta).length > 0) {
     messages.push({
       role: 'user',
@@ -391,6 +392,7 @@ export async function runPlan(task, onNotify) {
   let collectedFiles = { ...(task.files || {}) };
   let browseCount = 0;
   const maxBrowse = MAX_BROWSE;
+  const browseTrajectories = [];
 
   for (let step = 0; step < MAX_STEPS; step++) {
     const resp = await think(messages, PLANNER_TOOLS);
@@ -423,6 +425,14 @@ export async function runPlan(task, onNotify) {
                 collectedFiles = { ...collectedFiles, ...browseResult.files };
                 const fileNames = Object.keys(browseResult.files).join(', ');
                 toolResult.downloadedFiles = fileNames;
+              }
+              // Save browse-level trajectory (not sent to planner LLM)
+              if (browseResult.browseTrajectory) {
+                browseTrajectories.push({
+                  step: browseCount,
+                  prompt: args.prompt,
+                  trajectory: browseResult.browseTrajectory,
+                });
               }
             } catch (err) {
               if (err instanceof UserCancelledError) throw err;
@@ -488,7 +498,7 @@ export async function runPlan(task, onNotify) {
               memory: args.memory || null,
               runSummary: args.runSummary || null,
               learnings: args.learnings || null,
-              trajectory: messages,
+              trajectory: messages, browseTrajectories,
               files: collectedFiles,
               stopReached: !!args.stopReached,
             };
@@ -510,15 +520,15 @@ export async function runPlan(task, onNotify) {
 
     // LLM responded with plain text — treat as done
     if (resp.result?.text) {
-      return { result: resp.result.text, trajectory: messages, files: collectedFiles };
+      return { result: resp.result.text, trajectory: messages, browseTrajectories, files: collectedFiles };
     }
     if (resp.result && typeof resp.result === 'object') {
-      return { result: JSON.stringify(resp.result), trajectory: messages };
+      return { result: JSON.stringify(resp.result), trajectory: messages, browseTrajectories };
     }
 
     // Unexpected response
-    return { result: 'Plan ended unexpectedly.', trajectory: messages };
+    return { result: 'Plan ended unexpectedly.', trajectory: messages, browseTrajectories };
   }
 
-  return { result: 'Plan reached maximum steps.', trajectory: messages };
+  return { result: 'Plan reached maximum steps.', trajectory: messages, browseTrajectories };
 }

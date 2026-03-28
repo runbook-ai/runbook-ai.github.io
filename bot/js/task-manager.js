@@ -154,8 +154,8 @@ async function executeTask(task) {
 
     // Replace memory — model returns full snapshot each run, old fields are discarded
     if (planResult.memory && typeof planResult.memory === 'object') {
-      const { history, __childStatuses, __runSummary, __trajectory } = task.context;
-      task.context = { history, __childStatuses, __runSummary, __trajectory, ...planResult.memory };
+      const { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories } = task.context;
+      task.context = { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, ...planResult.memory };
     }
 
     // Save cumulative run summary for recurring tasks
@@ -173,6 +173,13 @@ async function executeTask(task) {
     // Save full planner trajectory (last run only)
     if (planResult.trajectory) {
       task.context.__trajectory = planResult.trajectory;
+    }
+
+    // Save browse-level trajectories (last run only)
+    if (planResult.browseTrajectories && planResult.browseTrajectories.length > 0) {
+      task.context.__browseTrajectories = planResult.browseTrajectories;
+    } else {
+      delete task.context.__browseTrajectories;
     }
 
     // Decide next state
