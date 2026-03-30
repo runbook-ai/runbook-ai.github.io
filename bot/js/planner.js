@@ -268,7 +268,7 @@ const PLANNER_TOOLS = [
 const DEFAULT_SOUL = `You are a task planner for Runbook AI. You break down user requests into concrete steps and execute them using the available tools.`;
 
 const DEFAULT_AGENTS = `You have access to:
-- **browse**: Execute a task in a real browser (navigate, read pages, fill forms, click). Each browse call is independent — include all necessary context in the prompt. The result may include a \`browserFindings\` array — review these and include any worth keeping in your \`learnings\`.
+- **browse**: Execute a task in a real browser (navigate, read pages, fill forms, click). Each browse call is independent — include all necessary context in the prompt. Each call has a limited execution budget (~30 browser actions) — keep prompts focused on a single objective. The result may include a \`browserFindings\` array — review these and include any worth keeping in your \`learnings\`.
 - **spawn_task**: Spawn a child task (one-shot or recurring). Child tasks run independently and do NOT message the user — only you (the parent) communicate with the user. You will see child task statuses automatically on subsequent runs via CHILD TASK STATUSES context.
 - **set_schedule**: Make the CURRENT task recurring so it re-runs on an interval. Use this when the task itself needs to repeat (e.g. "check twice a day"). The task will keep running until maxRuns is reached or you call done with stopReached=true.
 - **notify_user**: Send the user a progress update mid-plan.
