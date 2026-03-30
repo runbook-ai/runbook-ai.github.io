@@ -154,8 +154,8 @@ async function executeTask(task) {
 
     // Replace memory — model returns full snapshot each run, old fields are discarded
     if (planResult.memory && typeof planResult.memory === 'object') {
-      const { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories } = task.context;
-      task.context = { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, ...planResult.memory };
+      const { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp } = task.context;
+      task.context = { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, ...planResult.memory };
     }
 
     // Save cumulative run summary for recurring tasks
@@ -273,6 +273,18 @@ async function executeTask(task) {
     }
   } finally {
     hideProcessing();
+
+    // Check for pending follow-up (user replied while task was running)
+    const freshTask = await getTask(task.id);
+    if (freshTask?.context?.__pendingFollowUp) {
+      const followUp = freshTask.context.__pendingFollowUp;
+      delete freshTask.context.__pendingFollowUp;
+      await putTask(freshTask, { skipSync: true });
+      await continueTask(freshTask, followUp.prompt, {
+        files: followUp.files,
+        replyToId: followUp.replyToId,
+      });
+    }
   }
 }
 
@@ -284,7 +296,7 @@ export async function listTasks(statusFilter) {
   return getAllTasks();
 }
 
-/** Cancel a task — marks it as failed and removes from queue. */
+/** Cancel a task and all its children recursively. */
 export async function cancelTask(id) {
   const task = await getTask(id);
   if (!task) return null;
@@ -294,6 +306,59 @@ export async function cancelTask(id) {
   await putTask(task);
   const idx = readyQueue.indexOf(id);
   if (idx !== -1) readyQueue.splice(idx, 1);
+  // Recursively cancel children
+  const children = await getChildTasks(id);
+  for (const child of children) {
+    if (['queued', 'running', 'waiting', 'paused'].includes(child.status)) {
+      await cancelTask(child.id);
+    }
+  }
+  return task;
+}
+
+/**
+ * Find a root task (no parent) whose replyToId matches the given message ID.
+ * Returns the task or null.
+ */
+export async function findRootTaskByReplyToId(messageId) {
+  const all = await getAllTasks();
+  return all.find(t => t.replyToId === messageId && !t.parentId) || null;
+}
+
+/**
+ * Continue an existing task with new user input.
+ * Appends the message to conversation history and re-enqueues.
+ */
+/**
+ * Continue an existing task with new user input.
+ * Appends the message to conversation history and re-enqueues.
+ * If the task is currently running, queues the follow-up for after it completes.
+ */
+export async function continueTask(task, newPrompt, { files, replyToId } = {}) {
+  if (task.status === 'running') {
+    // Task is mid-execution — store the follow-up so executeTask can pick it up
+    if (!task.context) task.context = {};
+    task.context.__pendingFollowUp = { prompt: newPrompt, files, replyToId };
+    await putTask(task);
+    return task;
+  }
+  // Append current prompt+result as history before adding new input
+  if (!task.context) task.context = {};
+  if (!task.context.history) task.context.history = [];
+  if (task.result) {
+    task.context.history.push({ role: 'user', content: task.prompt });
+    task.context.history.push({ role: 'assistant', content: task.result });
+  }
+  // Update prompt to the new user input
+  task.prompt = newPrompt;
+  if (replyToId) task.replyToId = replyToId;
+  if (files && Object.keys(files).length > 0) {
+    task.files = { ...(task.files || {}), ...files };
+  }
+  task.status = 'queued';
+  task.nextRunAt = null;
+  task.lastError = null;
+  await enqueueTask(task);
   return task;
 }
 

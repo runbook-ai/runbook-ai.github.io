@@ -8,6 +8,7 @@ import { proxyFetch } from './proxy.js';
 import {
   createAndEnqueue, listTasks, cancelTask,
   pauseTask, resumeTask,
+  findRootTaskByReplyToId, continueTask,
 } from './task-manager.js';
 
 // ── Interval parsing ────────────────────────────────────────────────────────
@@ -128,6 +129,27 @@ async function downloadAttachments(attachments) {
   return files;
 }
 
+// ── Reply chain root finder ──────────────────────────────────────────────────
+
+/**
+ * Walk up the Discord reply chain to find the root message ID.
+ * The root is the first message in the chain that has no message_reference
+ * (i.e. the original user message that started the conversation).
+ */
+async function findRootMessageId(msg, botUserId, token) {
+  let refId = msg.message_reference?.message_id;
+  const visited = new Set();
+  let lastId = refId;
+  while (refId && !visited.has(refId)) {
+    visited.add(refId);
+    const refMsg = await fetchDiscordMessage(msg.channel_id, refId, token);
+    if (!refMsg) break;
+    lastId = refId;
+    refId = refMsg.message_reference?.message_id;
+  }
+  return lastId || null;
+}
+
 // ── Message handling ────────────────────────────────────────────────────────
 
 /**
@@ -242,27 +264,48 @@ export async function handleMessageCreate(msg, botUserId) {
   addReaction(channelId, msg.id, '%F0%9F%91%8D', s.botToken); // 👍
   const files = await downloadAttachments(msg.attachments);
 
-  // If replying to an existing conversation, collect the reply chain as history
-  let history = [];
-  let chainFiles = {};
+  // If replying to a message, try to find the existing root task
   if (msg.message_reference) {
-    ({ turns: history, files: chainFiles } = await collectReplyChain(msg, botUserId, s.botToken));
+    const rootMessageId = await findRootMessageId(msg, botUserId, s.botToken);
+    if (rootMessageId) {
+      const rootTask = await findRootTaskByReplyToId(rootMessageId);
+      if (rootTask) {
+        // Continue existing task with new user input
+        await continueTask(rootTask, content || '(see attached files)', {
+          files,
+          replyToId: msg.id,
+        });
+        return;
+      }
+    }
+
+    // No existing task found — fall through to create a new task with reply chain history
+    const { turns: history, files: chainFiles } = await collectReplyChain(msg, botUserId, s.botToken);
+    const context = {};
+    if (history.length > 0) {
+      context.history = history;
+    }
+
+    await createAndEnqueue({
+      prompt:    content || '(see attached files)',
+      files:     { ...chainFiles, ...files },
+      config:    {},
+      channelId,
+      replyToId: msg.id,
+      createdBy: msg.author?.username,
+      context,
+    });
+    return;
   }
 
-  // Build context with reply chain history BEFORE enqueuing (avoids race with planner)
-  const context = {};
-  if (history.length > 0) {
-    context.history = history;
-  }
-
-  const task = await createAndEnqueue({
+  // No reply — create a fresh task
+  await createAndEnqueue({
     prompt:    content || '(see attached files)',
-    files:     { ...chainFiles, ...files },
+    files:     { ...files },
     config:    {},
     channelId,
     replyToId: msg.id,
     createdBy: msg.author?.username,
-    context,
   });
 }
 

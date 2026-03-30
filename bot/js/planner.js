@@ -8,7 +8,7 @@
  */
 
 import { loadSettings } from './settings.js';
-import { createAndEnqueue } from './task-manager.js';
+import { createAndEnqueue, cancelTask } from './task-manager.js';
 import { putTask } from './task-store.js';
 import { buildWorkspaceContext } from './memory-store.js';
 
@@ -215,6 +215,23 @@ const PLANNER_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'cancel_task',
+      description: 'Cancel a child task and all its descendants. Use when a child task is no longer needed (e.g. user changed direction, task is obsolete). See CHILD TASK STATUSES for available task IDs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          taskId: {
+            type: 'string',
+            description: 'The ID of the child task to cancel',
+          },
+        },
+        required: ['taskId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'notify_user',
       description: 'Send a progress update or result to the user immediately, without ending the plan.',
       parameters: {
@@ -271,6 +288,7 @@ const DEFAULT_AGENTS = `You have access to:
 - **browse**: Execute a task in a real browser (navigate, read pages, fill forms, click). Each browse call is independent — include all necessary context in the prompt. Each call has a limited execution budget (~30 browser actions) — keep prompts focused on a single objective. The result may include a \`browserFindings\` array — review these and include any worth keeping in your \`learnings\`.
 - **spawn_task**: Spawn a child task (one-shot or recurring). Child tasks run independently and do NOT message the user — only you (the parent) communicate with the user. You will see child task statuses automatically on subsequent runs via CHILD TASK STATUSES context.
 - **set_schedule**: Make the CURRENT task recurring so it re-runs on an interval. Use this when the task itself needs to repeat (e.g. "check twice a day"). The task will keep running until maxRuns is reached or you call done with stopReached=true.
+- **cancel_task**: Cancel a child task and all its descendants. Use when a child is no longer needed (e.g. user changed direction).
 - **notify_user**: Send the user a progress update mid-plan.
 - **done**: Finish the plan with a summary. Always populate these fields when relevant:
   - **memory**: structured data for future runs of THIS task (replaces previous memory entirely — include everything to keep)
@@ -382,7 +400,7 @@ export async function runPlan(task, onNotify) {
   }
 
   // Inject persistent structured memory (separate from meta fields)
-  const { history: _h, __childStatuses: _cs, __runSummary: _rs, __trajectory: _tr, __browseTrajectories: _bt, ...contextWithoutMeta } = (task.context || {});
+  const { history: _h, __childStatuses: _cs, __runSummary: _rs, __trajectory: _tr, __browseTrajectories: _bt, __pendingFollowUp: _pf, ...contextWithoutMeta } = (task.context || {});
   if (Object.keys(contextWithoutMeta).length > 0) {
     messages.push({
       role: 'user',
@@ -495,6 +513,15 @@ export async function runPlan(task, onNotify) {
             }
             await putTask(task);
             toolResult = { scheduled: true, intervalMs: args.intervalMs, maxRuns };
+            break;
+          }
+
+          case 'cancel_task': {
+            console.log('[planner] cancel_task:', args.taskId);
+            const cancelled = await cancelTask(args.taskId);
+            toolResult = cancelled
+              ? { cancelled: true, taskId: args.taskId }
+              : { cancelled: false, error: `Task ${args.taskId} not found` };
             break;
           }
 
