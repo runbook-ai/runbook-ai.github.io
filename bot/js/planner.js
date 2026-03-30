@@ -390,6 +390,15 @@ export async function runPlan(task, onNotify) {
   }
   messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
 
+  // If this is a follow-up on an ongoing task, tell the planner to consider replanning
+  const hasChildren = task.context?.__childStatuses?.length > 0;
+  if (history.length > 0 && (task.schedule || hasChildren)) {
+    messages.push({
+      role: 'user',
+      content: 'NOTE: The user sent new input for this ongoing task. Review the new request and decide whether to adjust the current plan — you may cancel_task obsolete children, spawn new ones, change the schedule, or simply respond. Do not restart work that is still valid.',
+    });
+  }
+
   // Inject run summary from previous runs (replaces growing history for recurring tasks)
   const runSummary = task.context?.__runSummary;
   if (runSummary) {
