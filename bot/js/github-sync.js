@@ -192,10 +192,11 @@ export async function bulkSync() {
     });
   }
 
-  // Add workspace files (SOUL.md, AGENTS.md, MEMORY.md)
+  // Add workspace files (SOUL.md, AGENTS.md, MEMORY.md) — only if locally saved
   for (const name of getWorkspaceFileNames()) {
+    const ts = getWorkspaceFileTimestamp(name);
+    if (!ts) continue; // never saved locally — don't push empty files
     const content = loadWorkspaceFile(name);
-    const ts = getWorkspaceFileTimestamp(name) || new Date().toISOString();
     const json = JSON.stringify({ content, updatedAt: ts });
     const blob = await githubPost('git/blobs', {
       content: btoa(unescape(encodeURIComponent(json))),
