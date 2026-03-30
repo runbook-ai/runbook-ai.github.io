@@ -299,24 +299,24 @@ document.getElementById('resetWsFileBtn').addEventListener('click', () => {
 async function renderLearnings() {
   const container = document.getElementById('learningsList');
   const memories = await getDailyMemories(30);
-  const withContent = memories.filter(m => m.content.trim());
+  const withEntries = memories.filter(m => m.entries && m.entries.length > 0);
 
-  if (withContent.length === 0) {
+  if (withEntries.length === 0) {
     container.innerHTML = '<div class="memory-empty">No learnings yet. The bot saves insights after completing tasks.</div>';
     return;
   }
 
   container.innerHTML = '';
-  for (const m of withContent) {
-    const lines = m.content.trim().split('\n').filter(Boolean);
+  for (const m of withEntries) {
+    const count = m.entries.length;
     const dateEl = document.createElement('div');
     dateEl.className = 'memory-date';
-    dateEl.innerHTML = `<svg class="chevron-sm" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> ${m.date} (${lines.length} ${lines.length === 1 ? 'entry' : 'entries'})`;
+    dateEl.innerHTML = `<svg class="chevron-sm" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> ${m.date} (${count} ${count === 1 ? 'entry' : 'entries'})`;
     dateEl.addEventListener('click', () => dateEl.classList.toggle('open'));
 
     const entriesEl = document.createElement('div');
     entriesEl.className = 'memory-entries';
-    entriesEl.textContent = m.content.trim();
+    entriesEl.textContent = m.entries.join('\n---\n');
 
     container.appendChild(dateEl);
     container.appendChild(entriesEl);

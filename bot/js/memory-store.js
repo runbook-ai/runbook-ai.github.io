@@ -92,24 +92,35 @@ function todayStr() {
 }
 
 /**
+ * Migrate a legacy record (content string) to entries array format.
+ * Returns the entries array.
+ */
+function migrateRecord(record) {
+  if (record.entries && Array.isArray(record.entries)) return record.entries;
+  if (!record.content) return [];
+  // Legacy format: "- item1\n- item2" → ["item1", "item2"]
+  return record.content.split('\n')
+    .map(line => line.replace(/^- /, '').trim())
+    .filter(Boolean);
+}
+
+/**
  * Append learnings to today's (or a specific date's) memory entry.
- * @param {string[]} entries - Array of learning strings
+ * @param {string[]} newEntries - Array of learning strings
  * @param {string} [date] - YYYY-MM-DD, defaults to today
  */
-export async function appendDailyMemory(entries, date) {
-  if (!entries || entries.length === 0) return;
+export async function appendDailyMemory(newEntries, date) {
+  if (!newEntries || newEntries.length === 0) return;
   const key = date || todayStr();
   const store = await tx('readwrite');
   return new Promise((resolve, reject) => {
     const getReq = store.get(key);
     getReq.onsuccess = () => {
       const existing = getReq.result;
-      const oldContent = existing?.content || '';
-      const newLines = entries.map(e => `- ${e}`).join('\n');
-      const content = oldContent ? `${oldContent}\n${newLines}` : newLines;
+      const oldEntries = existing ? migrateRecord(existing) : [];
       const record = {
         date: key,
-        content,
+        entries: [...oldEntries, ...newEntries],
         updatedAt: new Date().toISOString(),
       };
       const putReq = store.put(record);
@@ -123,7 +134,7 @@ export async function appendDailyMemory(entries, date) {
 /**
  * Get daily memory entries, newest first.
  * @param {number} [days=7] - How many days back to look
- * @returns {Promise<Array<{date: string, content: string, updatedAt: string}>>}
+ * @returns {Promise<Array<{date: string, entries: string[], updatedAt: string}>>}
  */
 export async function getDailyMemories(days = 7) {
   const store = await tx('readonly');
@@ -135,6 +146,7 @@ export async function getDailyMemories(days = 7) {
       const cutoffStr = cutoff.toISOString().slice(0, 10);
       const results = req.result
         .filter(r => r.date >= cutoffStr)
+        .map(r => ({ date: r.date, entries: migrateRecord(r), updatedAt: r.updatedAt }))
         .sort((a, b) => b.date.localeCompare(a.date));
       resolve(results);
     };
@@ -147,13 +159,25 @@ export async function getAllDailyMemories() {
   const store = await tx('readonly');
   return new Promise((resolve, reject) => {
     const req = store.getAll();
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      // Normalize all records to entries format
+      resolve(req.result.map(r => ({
+        date: r.date,
+        entries: migrateRecord(r),
+        updatedAt: r.updatedAt,
+      })));
+    };
     req.onerror = () => reject(req.error);
   });
 }
 
 /** Put a daily memory record directly (for restore). */
 export async function putDailyMemory(record) {
+  // Normalize on write
+  if (!record.entries && record.content) {
+    record.entries = migrateRecord(record);
+    delete record.content;
+  }
   const store = await tx('readwrite');
   return new Promise((resolve, reject) => {
     const req = store.put(record);
@@ -162,7 +186,7 @@ export async function putDailyMemory(record) {
   });
 }
 
-/** Clear all daily memories — sets content to empty string, keeps keys. */
+/** Clear all daily memories — sets entries to empty array, keeps keys. */
 export async function clearDailyMemories() {
   const store = await tx('readwrite');
   return new Promise((resolve, reject) => {
@@ -172,7 +196,8 @@ export async function clearDailyMemories() {
       let pending = records.length;
       if (pending === 0) { resolve(); return; }
       for (const record of records) {
-        record.content = '';
+        record.entries = [];
+        delete record.content;
         record.updatedAt = new Date().toISOString();
         const putReq = store.put(record);
         putReq.onsuccess = () => { if (--pending === 0) resolve(); };
@@ -209,8 +234,9 @@ export async function buildWorkspaceContext() {
   const memories = await getDailyMemories(7);
   const dailyParts = [];
   for (const m of memories) {
-    if (!m.content.trim()) continue;
-    const section = `### ${m.date}\n${m.content}`;
+    if (!m.entries || m.entries.length === 0) continue;
+    const rendered = m.entries.join('\n---\n');
+    const section = `### ${m.date}\n${rendered}`;
     if (chars + section.length + 50 > MAX_MEMORY_CHARS) break;
     dailyParts.push(section);
     chars += section.length;
