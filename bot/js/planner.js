@@ -158,7 +158,7 @@ const PLANNER_TOOLS = [
     type: 'function',
     function: {
       name: 'spawn_task',
-      description: 'Spawn a child task. Can be one-shot (runs once) or recurring (with schedule). The parent task can see child statuses on subsequent runs via the auto-injected CHILD TASK STATUSES context. Child tasks do not message the user — only the parent communicates via notify_user.',
+      description: 'Spawn a child task. Can be one-shot (runs once) or recurring (with schedule). The parent task can see child statuses on subsequent runs via the auto-injected CHILD TASK STATUSES context. Child tasks do not message the user — the parent communicates results via done().',
       parameters: {
         type: 'object',
         properties: {
@@ -232,23 +232,6 @@ const PLANNER_TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'notify_user',
-      description: 'Send a progress update or result to the user immediately, without ending the plan.',
-      parameters: {
-        type: 'object',
-        properties: {
-          message: {
-            type: 'string',
-            description: 'The message to send to the user',
-          },
-        },
-        required: ['message'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
       name: 'done',
       description: 'The plan is complete. Return the final summary and any data to remember. For recurring scheduled tasks, set stopReached to true when the stop condition has been met so the task auto-completes.',
       parameters: {
@@ -293,7 +276,6 @@ const DEFAULT_AGENTS = `You have access to:
 - **spawn_task**: Spawn a child task (one-shot or recurring). Child tasks run independently and do NOT message the user — only you (the parent) communicate with the user. You will see child task statuses automatically on subsequent runs via CHILD TASK STATUSES context.
 - **set_schedule**: Make the CURRENT task recurring so it re-runs on an interval. Use this when the task itself needs to repeat (e.g. "check twice a day"). The task will keep running until maxRuns is reached or you call done with stopReached=true.
 - **cancel_task**: Cancel a child task and all its descendants. Use when a child is no longer needed (e.g. user changed direction).
-- **notify_user**: Send the user a progress update mid-plan.
 - **done**: Finish the plan with a summary. Always populate these fields when relevant:
   - **memory**: structured data for future runs of THIS task (replaces previous memory entirely — include everything to keep)
   - **runSummary**: for recurring tasks, a cumulative prose summary covering ALL runs so far (you'll see the previous one on the next run — update it)
@@ -305,13 +287,12 @@ Guidelines:
 - For complex multi-stage workflows, use a parent-child pattern:
   - Use set_schedule on the parent task for the main recurring loop (e.g. checking a website periodically).
   - Use spawn_task to create independent child tasks for per-item work (e.g. one child per result to handle follow-up actions independently).
-  - On each parent run, check CHILD TASK STATUSES to see which children completed, then notify_user with relevant updates.
+  - On each parent run, check CHILD TASK STATUSES to see which children completed, then report relevant updates in done().
   - Child tasks are silent — they never message the user. The parent is responsible for all user communication.
 - For recurring tasks with a STOP CONDITION: when the condition is met, call done with stopReached=true. This will auto-complete the task and stop future runs.
 - Include specific URLs, search terms, and criteria in browse prompts — don't assume the browser agent remembers previous steps.
 - When spawning child tasks, include all necessary context in the prompt and context fields — children cannot see the parent's memory.
 - If a browse step fails, try an alternative approach before giving up.
-- Send notify_user for important intermediate results so the user stays informed.
 - Always end with done to provide a final summary.
 - For recurring tasks: ALWAYS include runSummary and memory in done(). runSummary should cover all runs including the current one. memory should contain structured state you need on the next run.
 - This may be a multi-turn conversation. Prior messages show what the user asked before and what you found. Use that context to handle follow-up requests (e.g. "reply to email 2" refers to an email listed in a previous response).
@@ -329,10 +310,9 @@ const MAX_BROWSE = 5;
  * Run a multi-step plan for a task.
  *
  * @param {object} task - The task record
- * @param {function} onNotify - Called with (message) to deliver user notifications
  * @returns {{ result: string, memory?: object, runSummary?: string, learnings?: string[], files?: object, stopReached?: boolean }}
  */
-export async function runPlan(task, onNotify) {
+export async function runPlan(task) {
   const scheduleNote = task.schedule ? ' This is a recurring task.' : '';
   const { soul, agents, memory } = await buildWorkspaceContext();
   const systemPrompt = [
@@ -426,7 +406,7 @@ export async function runPlan(task, onNotify) {
   if (childStatuses && childStatuses.length > 0) {
     messages.push({
       role: 'user',
-      content: `CHILD TASK STATUSES:\n${JSON.stringify(childStatuses, null, 2)}\n\nChild tasks do not message the user. Use notify_user to inform the user about important child task results.`,
+      content: `CHILD TASK STATUSES:\n${JSON.stringify(childStatuses, null, 2)}\n\nChild tasks do not message the user. Report child task results in your done() summary.`,
     });
   }
 
@@ -535,17 +515,6 @@ export async function runPlan(task, onNotify) {
             toolResult = cancelled
               ? { cancelled: true, taskId: args.taskId }
               : { cancelled: false, error: `Task ${args.taskId} not found` };
-            break;
-          }
-
-          case 'notify_user': {
-            console.log('[planner] notify_user:', args.message.slice(0, 80));
-            if (task.parentId) {
-              toolResult = { notified: false, error: 'Child tasks cannot notify the user directly. Return the information via done() and let the parent task communicate.' };
-            } else {
-              if (onNotify) await onNotify(args.message);
-              toolResult = { notified: true };
-            }
             break;
           }
 

@@ -137,10 +137,7 @@ async function executeTask(task) {
     }
 
     // Run through the planner
-    const planResult = await runPlan(task, async (message) => {
-      // onNotify callback — deliver progress updates
-      await deliver(task, message);
-    });
+    const planResult = await runPlan(task);
 
     // Re-read from DB to check if task was cancelled during execution
     const freshTask = await getTask(task.id);
@@ -222,7 +219,6 @@ async function executeTask(task) {
     // Deliver final result
     // - Child tasks never deliver directly — the parent handles user communication
     // - Planner can set silent=true to suppress delivery (e.g. nothing new to report)
-    // - The planner can always use notify_user during execution for mid-run updates
     const isChildTask = !!task.parentId;
     if (!isChildTask && !planResult.silent && task.channelId) {
       await deliver(task, task.result);
