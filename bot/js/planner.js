@@ -271,6 +271,10 @@ const PLANNER_TOOLS = [
             items: { type: 'string' },
             description: 'Key learnings to remember across all future tasks (e.g. user preferences, useful URLs, important facts). Each entry is one standalone insight.',
           },
+          silent: {
+            type: 'boolean',
+            description: 'Set to true to suppress sending the summary to the user. Use for recurring task runs with nothing new to report. Default: false (summary is always sent to user).',
+          },
           stopReached: {
             type: 'boolean',
             description: 'Set to true when the stop condition for this recurring task has been met. The task will auto-complete and stop recurring.',
@@ -542,12 +546,13 @@ export async function runPlan(task, onNotify) {
           }
 
           case 'done': {
-            console.log('[planner] done', args.stopReached ? '(stop condition reached)' : '');
+            console.log('[planner] done', args.stopReached ? '(stop condition reached)' : '', args.silent ? '(silent)' : '');
             return {
               result: args.summary,
               memory: args.memory || null,
               runSummary: args.runSummary || null,
               learnings: args.learnings || null,
+              silent: !!args.silent,
               trajectory: messages, browseTrajectories,
               files: collectedFiles,
               stopReached: !!args.stopReached,

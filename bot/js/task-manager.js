@@ -221,11 +221,10 @@ async function executeTask(task) {
 
     // Deliver final result
     // - Child tasks never deliver directly — the parent handles user communication
-    // - Recurring scheduled tasks still waiting skip delivery (quiet run)
+    // - Planner can set silent=true to suppress delivery (e.g. nothing new to report)
     // - The planner can always use notify_user during execution for mid-run updates
     const isChildTask = !!task.parentId;
-    const isQuietRun = task.schedule && task.status === 'waiting';
-    if (!isChildTask && !isQuietRun && task.delivery !== 'silent' && task.channelId) {
+    if (!isChildTask && !planResult.silent && task.channelId) {
       await deliver(task, task.result);
     }
 
