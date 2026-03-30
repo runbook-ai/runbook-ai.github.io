@@ -540,8 +540,12 @@ export async function runPlan(task, onNotify) {
 
           case 'notify_user': {
             console.log('[planner] notify_user:', args.message.slice(0, 80));
-            if (onNotify) await onNotify(args.message);
-            toolResult = { notified: true };
+            if (task.parentId) {
+              toolResult = { notified: false, error: 'Child tasks cannot notify the user directly. Return the information via done() and let the parent task communicate.' };
+            } else {
+              if (onNotify) await onNotify(args.message);
+              toolResult = { notified: true };
+            }
             break;
           }
 
