@@ -1,13 +1,64 @@
 /**
  * Memory store — persistent long-term memory for the bot.
  *
- * Two tiers:
- *   MEMORY.md   — user-editable global context (localStorage)
- *   memory/YYYY-MM-DD — daily auto-appended learnings (IndexedDB)
+ * Workspace files (localStorage):
+ *   SOUL.md    — persona and tone
+ *   AGENTS.md  — behavior and guidelines
+ *   MEMORY.md  — facts and accumulated knowledge
+ *
+ * Daily learnings (IndexedDB):
+ *   memory/YYYY-MM-DD — auto-appended learnings from task completions
  */
 
-const MEMORY_MD_KEY = 'runbookai_memory_md';
-const MEMORY_MD_TS_KEY = 'runbookai_memory_md_ts';
+// ── Workspace files (localStorage) ───────────────────────────────────────────
+
+const WORKSPACE_FILES = ['SOUL.md', 'AGENTS.md', 'MEMORY.md'];
+const WS_PREFIX = 'runbookai_ws_';
+const WS_TS_PREFIX = 'runbookai_ws_ts_';
+
+// Legacy keys for backward compatibility
+const LEGACY_MEMORY_MD_KEY = 'runbookai_memory_md';
+const LEGACY_MEMORY_MD_TS_KEY = 'runbookai_memory_md_ts';
+
+function wsKey(filename) { return WS_PREFIX + filename; }
+function wsTsKey(filename) { return WS_TS_PREFIX + filename; }
+
+/** Load a workspace file. */
+export function loadWorkspaceFile(filename) {
+  // Migrate legacy MEMORY.md key on first read
+  if (filename === 'MEMORY.md') {
+    const legacy = localStorage.getItem(LEGACY_MEMORY_MD_KEY);
+    if (legacy !== null && localStorage.getItem(wsKey(filename)) === null) {
+      localStorage.setItem(wsKey(filename), legacy);
+      localStorage.setItem(wsTsKey(filename), localStorage.getItem(LEGACY_MEMORY_MD_TS_KEY) || new Date().toISOString());
+      localStorage.removeItem(LEGACY_MEMORY_MD_KEY);
+      localStorage.removeItem(LEGACY_MEMORY_MD_TS_KEY);
+    }
+  }
+  return localStorage.getItem(wsKey(filename)) || '';
+}
+
+/** Save a workspace file. */
+export function saveWorkspaceFile(filename, content) {
+  localStorage.setItem(wsKey(filename), content);
+  localStorage.setItem(wsTsKey(filename), new Date().toISOString());
+}
+
+/** Get timestamp of a workspace file. */
+export function getWorkspaceFileTimestamp(filename) {
+  // Check legacy key for MEMORY.md migration
+  if (filename === 'MEMORY.md' && localStorage.getItem(wsTsKey(filename)) === null) {
+    return localStorage.getItem(LEGACY_MEMORY_MD_TS_KEY) || null;
+  }
+  return localStorage.getItem(wsTsKey(filename)) || null;
+}
+
+/** List all workspace file names. */
+export function getWorkspaceFileNames() {
+  return WORKSPACE_FILES;
+}
+
+
 const DB_NAME = 'runbookai_memory';
 const DB_VERSION = 1;
 const STORE_NAME = 'daily';
@@ -32,21 +83,6 @@ function openDB() {
 
 function tx(mode) {
   return openDB().then(db => db.transaction(STORE_NAME, mode).objectStore(STORE_NAME));
-}
-
-// ── MEMORY.md (localStorage) ─────────────────────────────────────────────────
-
-export function loadMemoryMd() {
-  return localStorage.getItem(MEMORY_MD_KEY) || '';
-}
-
-export function saveMemoryMd(content) {
-  localStorage.setItem(MEMORY_MD_KEY, content);
-  localStorage.setItem(MEMORY_MD_TS_KEY, new Date().toISOString());
-}
-
-export function getMemoryMdTimestamp() {
-  return localStorage.getItem(MEMORY_MD_TS_KEY) || null;
 }
 
 // ── Daily memory (IndexedDB) ─────────────────────────────────────────────────
@@ -152,22 +188,24 @@ export async function clearDailyMemories() {
 const MAX_MEMORY_CHARS = 4000;
 
 /**
- * Build the memory context string to inject into the planner system prompt.
- * Returns empty string if no memory content exists.
+ * Build the workspace context to inject into the planner system prompt.
+ * Returns { soul, agents, memory } strings. Empty strings if no content.
  */
-export async function buildMemoryContext() {
-  const parts = [];
+export async function buildWorkspaceContext() {
+  const soul = loadWorkspaceFile('SOUL.md').trim();
+  const agents = loadWorkspaceFile('AGENTS.md').trim();
+
+  // Build memory section: MEMORY.md + recent learnings
+  const memParts = [];
   let chars = 0;
 
-  // MEMORY.md
-  const md = loadMemoryMd().trim();
+  const md = loadWorkspaceFile('MEMORY.md').trim();
   if (md) {
     const section = `## MEMORY.md\n${md}`;
-    parts.push(section);
+    memParts.push(section);
     chars += section.length;
   }
 
-  // Recent daily learnings
   const memories = await getDailyMemories(7);
   const dailyParts = [];
   for (const m of memories) {
@@ -178,9 +216,13 @@ export async function buildMemoryContext() {
     chars += section.length;
   }
   if (dailyParts.length > 0) {
-    parts.push(`## Recent Learnings\n${dailyParts.join('\n\n')}`);
+    memParts.push(`## Recent Learnings\n${dailyParts.join('\n\n')}`);
   }
 
-  if (parts.length === 0) return '';
-  return `\n\n# Long-term Memory\n\n${parts.join('\n\n')}`;
+  const memory = memParts.length > 0
+    ? `\n\n# Long-term Memory\n\n${memParts.join('\n\n')}`
+    : '';
+
+  return { soul, agents, memory };
 }
+

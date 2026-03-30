@@ -553,13 +553,19 @@
       </div>
       <div class="card-body hidden" id="memoryBody">
         <div class="field">
-          <label for="memoryMdEditor">MEMORY.md</label>
-          <textarea id="memoryMdEditor" placeholder="Global context for all tasks. Write anything the bot should always remember (preferences, key facts, instructions)." style="height:120px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.8125rem;line-height:1.5;" spellcheck="false"></textarea>
-          <div class="field-hint">Injected into every task's system prompt. Edit freely.</div>
+          <label for="wsFileSelect">Workspace File</label>
+          <select id="wsFileSelect" style="margin-bottom:8px;">
+            <option value="SOUL.md">SOUL.md — persona &amp; tone</option>
+            <option value="AGENTS.md">AGENTS.md — behavior &amp; guidelines</option>
+            <option value="MEMORY.md" selected>MEMORY.md — facts &amp; knowledge</option>
+          </select>
+          <textarea id="wsFileEditor" placeholder="" style="height:140px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.8125rem;line-height:1.5;" spellcheck="false"></textarea>
+          <div class="field-hint" id="wsFileHint">Injected into every task's system prompt. Edit freely.</div>
         </div>
         <div class="form-actions">
-          <button class="btn btn-primary" id="saveMemoryMdBtn">Save</button>
-          <span class="save-ok" id="memoryMdOk" style="display:none">Saved</span>
+          <button class="btn btn-primary" id="saveWsFileBtn">Save</button>
+          <button class="btn btn-ghost" id="resetWsFileBtn">Reset to Default</button>
+          <span class="save-ok" id="wsFileOk" style="display:none">Saved</span>
         </div>
 
         <div class="memory-section" style="margin-top:20px;">

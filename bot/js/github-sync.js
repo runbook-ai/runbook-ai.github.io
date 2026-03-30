@@ -11,7 +11,8 @@
 import { getGitHubSync } from './settings.js';
 import { getAllTasks, putTask } from './task-store.js';
 import {
-  loadMemoryMd, saveMemoryMd, getMemoryMdTimestamp,
+  loadWorkspaceFile, saveWorkspaceFile, getWorkspaceFileTimestamp,
+  getWorkspaceFileNames,
   getAllDailyMemories, putDailyMemory,
 } from './memory-store.js';
 
@@ -191,15 +192,17 @@ export async function bulkSync() {
     });
   }
 
-  // Add MEMORY.md
-  const memoryMd = loadMemoryMd();
-  const memoryMdTs = getMemoryMdTimestamp() || new Date().toISOString();
-  const memoryMdContent = JSON.stringify({ content: memoryMd, updatedAt: memoryMdTs });
-  const memoryMdBlob = await githubPost('git/blobs', {
-    content: btoa(unescape(encodeURIComponent(memoryMdContent))),
-    encoding: 'base64',
-  });
-  tree.push({ path: 'memory/MEMORY.md.json', mode: '100644', type: 'blob', sha: memoryMdBlob.sha });
+  // Add workspace files (SOUL.md, AGENTS.md, MEMORY.md)
+  for (const name of getWorkspaceFileNames()) {
+    const content = loadWorkspaceFile(name);
+    const ts = getWorkspaceFileTimestamp(name) || new Date().toISOString();
+    const json = JSON.stringify({ content, updatedAt: ts });
+    const blob = await githubPost('git/blobs', {
+      content: btoa(unescape(encodeURIComponent(json))),
+      encoding: 'base64',
+    });
+    tree.push({ path: `workspace/${name}.json`, mode: '100644', type: 'blob', sha: blob.sha });
+  }
 
   // Add daily memory files
   const dailyMemories = await getAllDailyMemories();
@@ -228,8 +231,8 @@ export async function bulkSync() {
       });
       shaCache.set(task.id, { sha: result.content.sha, filename });
     }
-    // Also bootstrap memory files
-    for (const entry of tree.filter(e => e.path.startsWith('memory/'))) {
+    // Also bootstrap workspace + memory files
+    for (const entry of tree.filter(e => e.path.startsWith('workspace/') || e.path.startsWith('memory/'))) {
       const blobData = await githubGet(`git/blobs/${entry.sha}`);
       await githubPut(`contents/${entry.path}`, {
         message: `sync ${entry.path}`,
@@ -285,6 +288,7 @@ export async function restore() {
   const tree = await githubGet(`git/trees/${ref.object.sha}?recursive=1`);
 
   const taskBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('tasks/'));
+  const wsBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('workspace/'));
   const memoryBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('memory/'));
 
   const TASK_MAX_AGE_MS = 14 * 24 * 3_600_000; // 14 days — same as cron cleanup
@@ -324,17 +328,33 @@ export async function restore() {
     shaCache.set(remoteTask.id, { sha: blob.sha, filename: blob.path });
   }
 
-  // Restore memory
+  // Restore workspace files (SOUL.md, AGENTS.md, MEMORY.md)
+  for (const blob of wsBlobs) {
+    const blobData = await githubGet(`git/blobs/${blob.sha}`);
+    const json = decodeURIComponent(escape(atob(blobData.content)));
+    const remote = JSON.parse(json);
+    // Extract filename: workspace/SOUL.md.json → SOUL.md
+    const name = blob.path.replace('workspace/', '').replace('.json', '');
+    const localTs = getWorkspaceFileTimestamp(name);
+    if (!localTs || (remote.updatedAt && remote.updatedAt > localTs)) {
+      saveWorkspaceFile(name, remote.content || '');
+      restored++;
+    } else {
+      skipped++;
+    }
+  }
+
+  // Restore daily memory + legacy MEMORY.md.json from memory/ folder
   for (const blob of memoryBlobs) {
     const blobData = await githubGet(`git/blobs/${blob.sha}`);
     const json = decodeURIComponent(escape(atob(blobData.content)));
     const remote = JSON.parse(json);
 
     if (blob.path === 'memory/MEMORY.md.json') {
-      // MEMORY.md — restore if remote is newer
-      const localTs = getMemoryMdTimestamp();
+      // Legacy path — migrate to workspace/MEMORY.md.json
+      const localTs = getWorkspaceFileTimestamp('MEMORY.md');
       if (!localTs || (remote.updatedAt && remote.updatedAt > localTs)) {
-        saveMemoryMd(remote.content || '');
+        saveWorkspaceFile('MEMORY.md', remote.content || '');
         restored++;
       } else {
         skipped++;

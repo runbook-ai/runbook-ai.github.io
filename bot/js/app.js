@@ -4,7 +4,8 @@ import { startCron } from './cron.js';
 import { enqueueTask, rehydrate, setDeliveryHandler, setTypingHandler } from './task-manager.js';
 import { sendDiscordMessage, triggerTyping } from './discord.js';
 import { logMessage } from './ui.js';
-import { loadMemoryMd, saveMemoryMd, getDailyMemories, clearDailyMemories } from './memory-store.js';
+import { loadWorkspaceFile, saveWorkspaceFile, getDailyMemories, clearDailyMemories } from './memory-store.js';
+import { DEFAULT_SOUL, DEFAULT_AGENTS } from './planner.js';
 
 // -- Settings form -------------------------------------------------------------
 
@@ -234,13 +235,62 @@ document.getElementById('memoryToggle').addEventListener('click', () => {
   if (!open) renderLearnings();
 });
 
-// Load MEMORY.md on startup
-document.getElementById('memoryMdEditor').value = loadMemoryMd();
+// Workspace file editor
+const wsFileSelect = document.getElementById('wsFileSelect');
+const wsFileEditor = document.getElementById('wsFileEditor');
+const wsFileHint = document.getElementById('wsFileHint');
 
-// Save MEMORY.md
-document.getElementById('saveMemoryMdBtn').addEventListener('click', () => {
-  saveMemoryMd(document.getElementById('memoryMdEditor').value);
-  const ok = document.getElementById('memoryMdOk');
+const WS_HINTS = {
+  'SOUL.md': 'Persona and tone. Defines who the bot is and how it communicates.',
+  'AGENTS.md': 'Behavior and guidelines. Defines what the bot does and how it operates.',
+  'MEMORY.md': 'Facts and knowledge. What the bot should always remember.',
+};
+
+const WS_PLACEHOLDERS = {
+  'SOUL.md': 'Define the bot\'s persona and tone (e.g. "You are a friendly, concise assistant...").\nLeave empty to use the default.',
+  'AGENTS.md': 'Define behavior rules and guidelines (e.g. "Always check 3 sources before answering...").\nLeave empty to use the default.',
+  'MEMORY.md': 'Key facts the bot should always remember (e.g. user preferences, important URLs, decisions).',
+};
+
+const WS_DEFAULTS = {
+  'SOUL.md': DEFAULT_SOUL,
+  'AGENTS.md': DEFAULT_AGENTS,
+  'MEMORY.md': '',
+};
+
+function loadWsFile() {
+  const name = wsFileSelect.value;
+  wsFileEditor.value = loadWorkspaceFile(name);
+  wsFileEditor.placeholder = WS_PLACEHOLDERS[name] || '';
+  wsFileHint.textContent = WS_HINTS[name] || 'Injected into every task\'s system prompt. Edit freely.';
+}
+
+// Load initial file
+loadWsFile();
+
+wsFileSelect.addEventListener('change', loadWsFile);
+
+// Save
+document.getElementById('saveWsFileBtn').addEventListener('click', () => {
+  saveWorkspaceFile(wsFileSelect.value, wsFileEditor.value);
+  const ok = document.getElementById('wsFileOk');
+  ok.textContent = 'Saved';
+  ok.style.display = 'inline';
+  setTimeout(() => { ok.style.display = 'none'; }, 2000);
+});
+
+// Reset to default
+document.getElementById('resetWsFileBtn').addEventListener('click', () => {
+  const name = wsFileSelect.value;
+  const def = WS_DEFAULTS[name];
+  if (def === undefined) return;
+  if (name === 'MEMORY.md') {
+    if (!confirm('Clear MEMORY.md? This removes all stored facts.')) return;
+  }
+  wsFileEditor.value = def;
+  saveWorkspaceFile(name, def);
+  const ok = document.getElementById('wsFileOk');
+  ok.textContent = 'Reset';
   ok.style.display = 'inline';
   setTimeout(() => { ok.style.display = 'none'; }, 2000);
 });

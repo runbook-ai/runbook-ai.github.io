@@ -10,7 +10,7 @@
 import { loadSettings } from './settings.js';
 import { createAndEnqueue } from './task-manager.js';
 import { putTask } from './task-store.js';
-import { buildMemoryContext } from './memory-store.js';
+import { buildWorkspaceContext } from './memory-store.js';
 
 const EXTENSION_ID = 'kjbhngehjkiiecaflccjenmoccielojj';
 
@@ -264,9 +264,9 @@ const PLANNER_TOOLS = [
   },
 ];
 
-const PLANNER_SYSTEM_PROMPT = `You are a task planner for Runbook AI. You break down user requests into concrete steps and execute them using the available tools.
+const DEFAULT_SOUL = `You are a task planner for Runbook AI. You break down user requests into concrete steps and execute them using the available tools.`;
 
-You have access to:
+const DEFAULT_AGENTS = `You have access to:
 - **browse**: Execute a task in a real browser (navigate, read pages, fill forms, click). Each browse call is independent — include all necessary context in the prompt.
 - **spawn_task**: Spawn a child task (one-shot or recurring). Child tasks run independently and do NOT message the user — only you (the parent) communicate with the user. You will see child task statuses automatically on subsequent runs via CHILD TASK STATUSES context.
 - **set_schedule**: Make the CURRENT task recurring so it re-runs on an interval. Use this when the task itself needs to repeat (e.g. "check twice a day"). The task will keep running until maxRuns is reached or you call done with stopReached=true.
@@ -295,6 +295,8 @@ Guidelines:
 - IMPORTANT: Prefer lightweight pages. When gathering info, read aggregator/summary pages (HN comments, search results, API endpoints) rather than navigating to heavy media-rich external sites. Heavy pages can freeze the browser.
 - If the user input contains <subTask>...</subTask> or <forEachItem>...</forEachItem> notations, pass them as-is to the browse tool prompt. Do not interpret, expand, or strip these tags — they are processed downstream by the browser agent.`;
 
+export { DEFAULT_SOUL, DEFAULT_AGENTS };
+
 // ── Planner loop ───────────────────────────────────────────────────────────
 
 const MAX_STEPS = 10;
@@ -309,9 +311,16 @@ const MAX_BROWSE = 5;
  */
 export async function runPlan(task, onNotify) {
   const scheduleNote = task.schedule ? ' This is a recurring task.' : '';
-  const memoryContext = await buildMemoryContext();
+  const { soul, agents, memory } = await buildWorkspaceContext();
+  const systemPrompt = [
+    soul || DEFAULT_SOUL,
+    '\n\n',
+    agents || DEFAULT_AGENTS,
+    memory,
+    `\n\nCurrent date time: ${new Date().toString()}\nRun #${task.runCount} of this task.${scheduleNote}`,
+  ].join('');
   const messages = [
-    { role: 'system', content: `${PLANNER_SYSTEM_PROMPT}${memoryContext}\n\nCurrent date time: ${new Date().toString()}\nRun #${task.runCount} of this task.${scheduleNote}` },
+    { role: 'system', content: systemPrompt },
   ];
 
   // Separate image files (for vision) from non-image files (metadata only)
