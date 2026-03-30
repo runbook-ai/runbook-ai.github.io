@@ -9,7 +9,7 @@
  * nextRunAt <= now, it is moved to 'queued' and picked up by the task manager.
  */
 
-import { getDueTasks, getTasksByStatus, deleteTask } from './task-store.js';
+import { getDueTasks, getTasksByStatus, deleteTask, getTask } from './task-store.js';
 
 const TICK_INTERVAL_MS = 30_000; // check every 30s
 const CLEANUP_INTERVAL_MS = 3_600_000; // cleanup every hour
@@ -66,6 +66,13 @@ async function cleanup() {
       for (const t of tasks) {
         const age = now - new Date(t.lastRunAt || t.updatedAt || t.createdAt || 0).getTime();
         if (age > TASK_MAX_AGE_MS) {
+          // Don't delete child tasks whose parent is still active
+          if (t.parentId) {
+            const parent = await getTask(t.parentId);
+            if (parent && !['completed', 'failed'].includes(parent.status)) {
+              continue;
+            }
+          }
           await deleteTask(t.id);
           console.log(`[cron] cleaned up ${status} task ${t.id} (${Math.round(age / 86400000)}d old)`);
         }
