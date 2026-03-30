@@ -344,31 +344,19 @@ export async function restore() {
     }
   }
 
-  // Restore daily memory + legacy MEMORY.md.json from memory/ folder
+  // Restore daily memory files
   for (const blob of memoryBlobs) {
+    if (!blob.path.match(/^memory\/\d{4}-\d{2}-\d{2}\.json$/)) continue;
     const blobData = await githubGet(`git/blobs/${blob.sha}`);
     const json = decodeURIComponent(escape(atob(blobData.content)));
     const remote = JSON.parse(json);
-
-    if (blob.path === 'memory/MEMORY.md.json') {
-      // Legacy path — migrate to workspace/MEMORY.md.json
-      const localTs = getWorkspaceFileTimestamp('MEMORY.md');
-      if (!localTs || (remote.updatedAt && remote.updatedAt > localTs)) {
-        saveWorkspaceFile('MEMORY.md', remote.content || '');
-        restored++;
-      } else {
-        skipped++;
-      }
-    } else if (blob.path.match(/^memory\/\d{4}-\d{2}-\d{2}\.json$/)) {
-      // Daily memory — only restore within TTL
-      const memDate = new Date(remote.date + 'T00:00:00Z').getTime();
-      if (now - memDate > TASK_MAX_AGE_MS) {
-        skipped++;
-        continue;
-      }
-      await putDailyMemory(remote);
-      restored++;
+    const memDate = new Date(remote.date + 'T00:00:00Z').getTime();
+    if (now - memDate > TASK_MAX_AGE_MS) {
+      skipped++;
+      continue;
     }
+    await putDailyMemory(remote);
+    restored++;
   }
 
   return { restored, skipped };
