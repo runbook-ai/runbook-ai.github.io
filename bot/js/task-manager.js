@@ -328,10 +328,6 @@ export async function findRootTaskByReplyToId(messageId) {
 /**
  * Continue an existing task with new user input.
  * Appends the message to conversation history and re-enqueues.
- */
-/**
- * Continue an existing task with new user input.
- * Appends the message to conversation history and re-enqueues.
  * If the task is currently running, queues the follow-up for after it completes.
  */
 export async function continueTask(task, newPrompt, { files, replyToId } = {}) {
