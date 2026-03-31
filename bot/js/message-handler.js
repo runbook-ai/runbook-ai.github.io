@@ -365,34 +365,68 @@ async function handleScheduleCommand(msg, channelId, intervalStr, prompt, s) {
 }
 
 async function handleTasksCommand(channelId, replyToId, s) {
-  let tasks = await listTasks();
+  const allTasks = await listTasks();
 
-  // Show all ongoing tasks + up to 10 most recent finished tasks
-  const ongoing = tasks.filter(t => ['running', 'queued', 'waiting', 'paused'].includes(t.status));
-  const finished = tasks
-    .filter(t => t.status === 'completed' || t.status === 'failed')
+  // Show all ongoing tasks + up to 10 most recent finished root tasks
+  const ongoing = allTasks.filter(t => ['running', 'queued', 'waiting', 'paused'].includes(t.status));
+  const finished = allTasks
+    .filter(t => (t.status === 'completed' || t.status === 'failed') && !t.parentId)
     .sort((a, b) => (b.lastRunAt || b.updatedAt || 0) - (a.lastRunAt || a.updatedAt || 0))
     .slice(0, 10);
-  tasks = [...ongoing, ...finished];
+  const rootIds = new Set([...ongoing, ...finished].filter(t => !t.parentId).map(t => t.id));
 
-  if (tasks.length === 0) {
+  if (rootIds.size === 0 && ongoing.length === 0) {
     await sendDiscordMessage(channelId, 'No tasks.', s.botToken, replyToId);
     return;
   }
 
-  // Sort: running first, then queued, waiting, paused, then completed/failed
-  const order = { running: 0, queued: 1, waiting: 2, paused: 3, completed: 4, failed: 5 };
-  tasks.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+  // Build task map and children lookup
+  const taskMap = new Map(allTasks.map(t => [t.id, t]));
+  const childrenOf = new Map();
+  for (const t of allTasks) {
+    if (t.parentId) {
+      if (!childrenOf.has(t.parentId)) childrenOf.set(t.parentId, []);
+      childrenOf.get(t.parentId).push(t);
+    }
+  }
 
-  const lines = tasks.map(t => {
-    const statusIcon = {
-      running: '▶',  queued: '⏳', waiting: '⏰',
-      paused: '⏸',  completed: '✅', failed: '❌',
-    }[t.status] || '?';
+  const statusIcon = {
+    running: '▶',  queued: '⏳', waiting: '⏰',
+    paused: '⏸',  completed: '✅', failed: '❌',
+  };
+  const order = { running: 0, queued: 1, waiting: 2, paused: 3, completed: 4, failed: 5 };
+
+  function formatTask(t, indent) {
+    const icon = statusIcon[t.status] || '?';
     const sched = t.schedule ? ` (every ${formatMs(t.schedule.intervalMs)})` : '';
-    const promptPreview = t.prompt.length > 60 ? t.prompt.slice(0, 57) + '...' : t.prompt;
-    return `${statusIcon} \`${t.id}\` **${t.status}**${sched} — ${promptPreview}`;
-  });
+    const maxPrompt = indent ? 45 : 60;
+    const promptPreview = t.prompt.length > maxPrompt ? t.prompt.slice(0, maxPrompt - 3) + '...' : t.prompt;
+    return `${indent}${icon} \`${t.id}\` **${t.status}**${sched} — ${promptPreview}`;
+  }
+
+  function renderTree(taskId, indent) {
+    const t = taskMap.get(taskId);
+    if (!t) return [];
+    const lines = [formatTask(t, indent)];
+    const children = childrenOf.get(taskId) || [];
+    children.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+    for (const child of children) {
+      lines.push(...renderTree(child.id, indent + '  ↳ '));
+    }
+    return lines;
+  }
+
+  // Collect visible root tasks (ongoing + recent finished), sorted
+  const roots = [...ongoing.filter(t => !t.parentId), ...finished];
+  roots.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+  // Deduplicate
+  const seen = new Set();
+  const lines = [];
+  for (const t of roots) {
+    if (seen.has(t.id)) continue;
+    seen.add(t.id);
+    lines.push(...renderTree(t.id, ''));
+  }
 
   await sendDiscordMessage(channelId, lines.join('\n'), s.botToken, replyToId);
 }
