@@ -201,10 +201,10 @@ async function executeTask(task) {
     }
     await putTask(task);
 
-    // If this child finished a run, wake the parent — but only when no siblings
-    // are still actively executing (queued/running). Children that are waiting
-    // (between recurring runs), completed, or failed are all settled states.
-    if (task.parentId && (task.status === 'completed' || task.status === 'waiting')) {
+    // If this child finished a run, wake the parent — but only when:
+    // - no siblings are still actively executing (queued/running)
+    // - the child had something to report (not silent)
+    if (task.parentId && !planResult.silent && (task.status === 'completed' || task.status === 'waiting')) {
       const siblings = await getChildTasks(task.parentId);
       const anyActive = siblings.some(s => s.status === 'queued' || s.status === 'running');
       if (!anyActive) {
