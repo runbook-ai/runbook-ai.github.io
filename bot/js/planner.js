@@ -558,5 +558,32 @@ export async function runPlan(task) {
     return { result: 'Plan ended unexpectedly.', trajectory: messages, browseTrajectories };
   }
 
+  // Step limit reached — give the planner one last chance to finish with done
+  const DONE_ONLY = PLANNER_TOOLS.filter(t => t.function.name === 'done');
+  messages.push({
+    role: 'user',
+    content: 'Step limit reached. You MUST call done now with your best effort summary, including memory, runSummary, and learnings if applicable.',
+  });
+  try {
+    const forceResp = await think(messages, DONE_ONLY);
+    if (forceResp.toolCalls) {
+      const doneCall = forceResp.toolCalls.find(c => c.function.name === 'done');
+      if (doneCall) {
+        const args = JSON.parse(doneCall.function.arguments);
+        return {
+          result: args.summary || 'Plan reached maximum steps.',
+          memory: args.memory || null,
+          runSummary: args.runSummary || null,
+          learnings: args.learnings || null,
+          silent: !!args.silent,
+          trajectory: messages, browseTrajectories,
+          files: collectedFiles,
+          stopReached: !!args.stopReached,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[planner] forced done failed:', err.message);
+  }
   return { result: 'Plan reached maximum steps.', trajectory: messages, browseTrajectories };
 }
