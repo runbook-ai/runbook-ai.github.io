@@ -372,7 +372,7 @@
       const openResp = await chrome.runtime.sendMessage(EXTENSION_ID, { action: "openSidePanel" });
       if (openResp?.error) return openResp;
       await new Promise(r => setTimeout(r, 500));
-      chrome.runtime.sendMessage(EXTENSION_ID, { action: "runHeadlessTaskWithConfig", args: { prompt, config } });
+      chrome.runtime.sendMessage(EXTENSION_ID, { action: "runHeadlessTaskWithConfig", args: { prompt, initialTaskState: null, config } });
       return { message: "Runbook started successfully." };
     }
 
