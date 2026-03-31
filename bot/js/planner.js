@@ -375,47 +375,38 @@ export async function runPlan(task) {
   messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
 
   // If this is a follow-up on an ongoing task, tell the planner to consider replanning
+  // Build combined task context message
+  const { history: _h, __childStatuses: _cs, __runSummary: _rs, __trajectory: _tr, __browseTrajectories: _bt, __pendingFollowUp: _pf, __stopCondition: _sc, ...contextWithoutMeta } = (task.context || {});
+  const taskContextSections = [];
+
   const hasChildren = task.context?.__childStatuses?.length > 0;
   if (history.length > 0 && (task.schedule || hasChildren)) {
-    messages.push({
-      role: 'user',
-      content: 'NOTE: The user sent new input for this ongoing task. Review the new request and decide whether to adjust the current plan — you may cancel_task obsolete children, spawn new ones, change the schedule, or simply respond. Do not restart work that is still valid.',
-    });
+    taskContextSections.push('## New user input\nThe user sent new input for this ongoing task. Review and adjust as needed — you may cancel_task obsolete children, spawn new ones, change the schedule, or simply respond. Do not restart work that is still valid.');
   }
 
-  // Inject run summary from previous runs (replaces growing history for recurring tasks)
   const runSummary = task.context?.__runSummary;
   if (runSummary) {
-    messages.push({
-      role: 'user',
-      content: `Summary of previous runs (runs 1-${task.runCount - 1}):\n${runSummary}`,
-    });
+    taskContextSections.push(`## Previous runs summary (runs 1-${task.runCount - 1})\n${runSummary}`);
   }
 
-  // Inject persistent structured memory (separate from meta fields)
-  const { history: _h, __childStatuses: _cs, __runSummary: _rs, __trajectory: _tr, __browseTrajectories: _bt, __pendingFollowUp: _pf, __stopCondition: _sc, ...contextWithoutMeta } = (task.context || {});
   if (Object.keys(contextWithoutMeta).length > 0) {
-    messages.push({
-      role: 'user',
-      content: `Context from prior runs:\n${JSON.stringify(contextWithoutMeta, null, 2)}`,
-    });
+    taskContextSections.push(`## Structured memory\n${JSON.stringify(contextWithoutMeta, null, 2)}`);
   }
 
-  // Inject child task statuses so the planner can react to child completions
   const childStatuses = task.context?.__childStatuses;
   if (childStatuses && childStatuses.length > 0) {
-    messages.push({
-      role: 'user',
-      content: `CHILD TASK STATUSES:\n${JSON.stringify(childStatuses, null, 2)}\n\nChild tasks do not message the user. Report child task results in your done() summary.`,
-    });
+    taskContextSections.push(`## Child task statuses\n${JSON.stringify(childStatuses, null, 2)}\n\nChild tasks do not message the user. Report child task results in your done() summary.`);
   }
 
-  // Inject stop condition for recurring tasks
   const stopCondition = task.context?.__stopCondition;
   if (stopCondition) {
+    taskContextSections.push(`## Stop condition\nWhen this condition is met, call done with stopReached=true to auto-complete this task: ${stopCondition}`);
+  }
+
+  if (taskContextSections.length > 0) {
     messages.push({
       role: 'user',
-      content: `STOP CONDITION: When this condition is met, call done with stopReached=true to auto-complete this task: ${stopCondition}`,
+      content: `Task context:\n\n${taskContextSections.join('\n\n')}`,
     });
   }
 
