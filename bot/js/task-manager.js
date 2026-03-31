@@ -201,24 +201,24 @@ async function executeTask(task) {
     }
     await putTask(task);
 
-    // If this child finished a run, wake the parent — but only when:
-    // - no siblings are still actively executing (queued/running)
-    // - the child had something to report (not silent)
-    // If the parent is already completed/failed, deliver the child result directly.
+    // If this child finished a run:
+    // 1. If parent is still active (waiting), wake it when all siblings are settled
+    // 2. If parent is already done (completed/failed), deliver child result directly
     let childDeliveredDirectly = false;
     if (task.parentId && !planResult.silent && (task.status === 'completed' || task.status === 'waiting')) {
-      const siblings = await getChildTasks(task.parentId);
-      const anyActive = siblings.some(s => s.status === 'queued' || s.status === 'running');
-      if (!anyActive) {
-        const parent = await getTask(task.parentId);
-        if (parent && parent.status === 'waiting') {
+      const parent = await getTask(task.parentId);
+      if (parent && parent.status === 'waiting') {
+        // Wake parent only when no siblings are still actively executing
+        const siblings = await getChildTasks(task.parentId);
+        const anyActive = siblings.some(s => s.status === 'queued' || s.status === 'running');
+        if (!anyActive) {
           parent.nextRunAt = new Date().toISOString(); // wake immediately on next cron tick
           await putTask(parent);
-        } else if (parent && ['completed', 'failed'].includes(parent.status) && task.channelId) {
-          // Parent is done — deliver child result directly since no one else will
-          await deliver(task, task.result);
-          childDeliveredDirectly = true;
         }
+      } else if (parent && ['completed', 'failed'].includes(parent.status) && task.channelId) {
+        // Parent is done — deliver child result directly since no one else will
+        await deliver(task, task.result);
+        childDeliveredDirectly = true;
       }
     }
 
