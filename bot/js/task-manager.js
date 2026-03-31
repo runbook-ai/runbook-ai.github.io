@@ -151,8 +151,8 @@ async function executeTask(task) {
 
     // Replace memory — model returns full snapshot each run, old fields are discarded
     if (planResult.memory && typeof planResult.memory === 'object') {
-      const { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, __stopCondition } = task.context;
-      task.context = { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, __stopCondition, ...planResult.memory };
+      const { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, __stopCondition, __hasNewInput } = task.context;
+      task.context = { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, __stopCondition, __hasNewInput, ...planResult.memory };
     }
 
     // Save cumulative run summary for recurring tasks
@@ -347,6 +347,7 @@ export async function continueTask(task, newPrompt, { files, replyToId } = {}) {
     task.context.history.push({ role: 'assistant', content: task.result });
   }
   // Update prompt to the new user input
+  task.context.__hasNewInput = true;
   task.prompt = newPrompt;
   if (replyToId) task.replyToId = replyToId;
   if (files && Object.keys(files).length > 0) {

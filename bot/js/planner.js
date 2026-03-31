@@ -376,12 +376,12 @@ export async function runPlan(task) {
 
   // If this is a follow-up on an ongoing task, tell the planner to consider replanning
   // Build combined task context message
-  const { history: _h, __childStatuses: _cs, __runSummary: _rs, __trajectory: _tr, __browseTrajectories: _bt, __pendingFollowUp: _pf, __stopCondition: _sc, ...contextWithoutMeta } = (task.context || {});
+  const { history: _h, __childStatuses: _cs, __runSummary: _rs, __trajectory: _tr, __browseTrajectories: _bt, __pendingFollowUp: _pf, __stopCondition: _sc, __hasNewInput: _ni, ...contextWithoutMeta } = (task.context || {});
   const taskContextSections = [];
 
-  const hasChildren = task.context?.__childStatuses?.length > 0;
-  if (history.length > 0 && (task.schedule || hasChildren)) {
+  if (task.context?.__hasNewInput) {
     taskContextSections.push('## New user input\nThe user sent new input for this ongoing task. Review and adjust as needed — you may cancel_task obsolete children, spawn new ones, change the schedule, or simply respond. Do not restart work that is still valid.');
+    delete task.context.__hasNewInput;
   }
 
   const runSummary = task.context?.__runSummary;
