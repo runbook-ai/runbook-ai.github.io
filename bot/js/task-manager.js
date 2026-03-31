@@ -151,8 +151,8 @@ async function executeTask(task) {
 
     // Replace memory — model returns full snapshot each run, old fields are discarded
     if (planResult.memory && typeof planResult.memory === 'object') {
-      const { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp } = task.context;
-      task.context = { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, ...planResult.memory };
+      const { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, __stopCondition } = task.context;
+      task.context = { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, __stopCondition, ...planResult.memory };
     }
 
     // Save cumulative run summary for recurring tasks

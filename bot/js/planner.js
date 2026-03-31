@@ -393,7 +393,7 @@ export async function runPlan(task) {
   }
 
   // Inject persistent structured memory (separate from meta fields)
-  const { history: _h, __childStatuses: _cs, __runSummary: _rs, __trajectory: _tr, __browseTrajectories: _bt, __pendingFollowUp: _pf, ...contextWithoutMeta } = (task.context || {});
+  const { history: _h, __childStatuses: _cs, __runSummary: _rs, __trajectory: _tr, __browseTrajectories: _bt, __pendingFollowUp: _pf, __stopCondition: _sc, ...contextWithoutMeta } = (task.context || {});
   if (Object.keys(contextWithoutMeta).length > 0) {
     messages.push({
       role: 'user',
@@ -407,6 +407,15 @@ export async function runPlan(task) {
     messages.push({
       role: 'user',
       content: `CHILD TASK STATUSES:\n${JSON.stringify(childStatuses, null, 2)}\n\nChild tasks do not message the user. Report child task results in your done() summary.`,
+    });
+  }
+
+  // Inject stop condition for recurring tasks
+  const stopCondition = task.context?.__stopCondition;
+  if (stopCondition) {
+    messages.push({
+      role: 'user',
+      content: `STOP CONDITION: When this condition is met, call done with stopReached=true to auto-complete this task: ${stopCondition}`,
     });
   }
 
@@ -472,10 +481,7 @@ export async function runPlan(task) {
             const schedule = args.schedule || null;
             console.log('[planner] spawn_task:', args.prompt.slice(0, 80),
               schedule ? `every ${schedule.intervalMs}ms, max ${maxRuns} runs` : '(one-shot)');
-            let childPrompt = args.prompt;
-            if (args.stopCondition) {
-              childPrompt += `\n\nSTOP CONDITION: When this condition is met, call done with stopReached=true to auto-complete this task: ${args.stopCondition}`;
-            }
+            const childPrompt = args.prompt;
             const child = await createAndEnqueue({
               prompt:    childPrompt,
               config:    task.config,
@@ -486,9 +492,10 @@ export async function runPlan(task) {
               maxRuns,
               parentId:  task.id,
             });
-            // Pass initial context to child if provided
-            if (args.context && typeof args.context === 'object') {
-              child.context = { ...child.context, ...args.context };
+            // Pass initial context and stop condition to child
+            if ((args.context && typeof args.context === 'object') || args.stopCondition) {
+              if (args.context) child.context = { ...child.context, ...args.context };
+              if (args.stopCondition) child.context.__stopCondition = args.stopCondition;
               await putTask(child);
             }
             toolResult = { spawned: true, taskId: child.id, schedule: schedule ? { intervalMs: schedule.intervalMs, maxRuns } : 'one-shot' };
@@ -502,7 +509,7 @@ export async function runPlan(task) {
             task.schedule = { type: 'every', intervalMs: args.intervalMs };
             task.maxRuns  = maxRuns;
             if (args.stopCondition) {
-              task.prompt += `\n\nSTOP CONDITION: When this condition is met, call done with stopReached=true to auto-complete this task: ${args.stopCondition}`;
+              task.context.__stopCondition = args.stopCondition;
             }
             await putTask(task);
             toolResult = { scheduled: true, intervalMs: args.intervalMs, maxRuns };
