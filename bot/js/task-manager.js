@@ -204,6 +204,8 @@ async function executeTask(task) {
     // If this child finished a run, wake the parent — but only when:
     // - no siblings are still actively executing (queued/running)
     // - the child had something to report (not silent)
+    // If the parent is already completed/failed, deliver the child result directly.
+    let childDeliveredDirectly = false;
     if (task.parentId && !planResult.silent && (task.status === 'completed' || task.status === 'waiting')) {
       const siblings = await getChildTasks(task.parentId);
       const anyActive = siblings.some(s => s.status === 'queued' || s.status === 'running');
@@ -212,12 +214,16 @@ async function executeTask(task) {
         if (parent && parent.status === 'waiting') {
           parent.nextRunAt = new Date().toISOString(); // wake immediately on next cron tick
           await putTask(parent);
+        } else if (parent && ['completed', 'failed'].includes(parent.status) && task.channelId) {
+          // Parent is done — deliver child result directly since no one else will
+          await deliver(task, task.result);
+          childDeliveredDirectly = true;
         }
       }
     }
 
     // Deliver final result
-    // - Child tasks never deliver directly — the parent handles user communication
+    // - Child tasks deliver only if parent is gone (handled above)
     // - Planner can set silent=true to suppress delivery (e.g. nothing new to report)
     const isChildTask = !!task.parentId;
     if (!isChildTask && !planResult.silent && task.channelId) {
