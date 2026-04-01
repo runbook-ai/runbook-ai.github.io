@@ -150,9 +150,13 @@ async function executeTask(task) {
     task.lastError         = null;
 
     // Replace memory — model returns full snapshot each run, old fields are discarded
+    // Preserve all __ prefixed meta fields and history
     if (planResult.memory && typeof planResult.memory === 'object') {
-      const { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, __stopCondition, __hasNewInput, __originalPrompt } = task.context;
-      task.context = { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, __stopCondition, __hasNewInput, __originalPrompt, ...planResult.memory };
+      const preserved = {};
+      for (const [k, v] of Object.entries(task.context)) {
+        if (k === 'history' || k.startsWith('__')) preserved[k] = v;
+      }
+      task.context = { ...preserved, ...planResult.memory };
     }
 
     // Save cumulative run summary for recurring tasks
