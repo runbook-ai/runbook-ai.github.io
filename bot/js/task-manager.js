@@ -151,8 +151,8 @@ async function executeTask(task) {
 
     // Replace memory — model returns full snapshot each run, old fields are discarded
     if (planResult.memory && typeof planResult.memory === 'object') {
-      const { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, __stopCondition, __hasNewInput } = task.context;
-      task.context = { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, __stopCondition, __hasNewInput, ...planResult.memory };
+      const { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, __stopCondition, __hasNewInput, __originalPrompt } = task.context;
+      task.context = { history, __childStatuses, __runSummary, __trajectory, __browseTrajectories, __pendingFollowUp, __stopCondition, __hasNewInput, __originalPrompt, ...planResult.memory };
     }
 
     // Save cumulative run summary for recurring tasks
@@ -177,6 +177,15 @@ async function executeTask(task) {
       task.context.__browseTrajectories = planResult.browseTrajectories;
     } else {
       delete task.context.__browseTrajectories;
+    }
+
+    // For recurring tasks with a follow-up, restore original prompt and save the exchange
+    if (task.context?.__originalPrompt) {
+      if (!task.context.history) task.context.history = [];
+      task.context.history.push({ role: 'user', content: task.prompt });
+      task.context.history.push({ role: 'assistant', content: task.result });
+      task.prompt = task.context.__originalPrompt;
+      delete task.context.__originalPrompt;
     }
 
     // Decide next state
@@ -348,6 +357,10 @@ export async function continueTask(task, newPrompt, { files, replyToId } = {}) {
   }
   // Update prompt to the new user input
   task.context.__hasNewInput = true;
+  // For recurring tasks, save the original prompt so it can be restored after the follow-up
+  if (task.schedule && !task.context.__originalPrompt) {
+    task.context.__originalPrompt = task.prompt;
+  }
   task.prompt = newPrompt;
   if (replyToId) task.replyToId = replyToId;
   if (files && Object.keys(files).length > 0) {

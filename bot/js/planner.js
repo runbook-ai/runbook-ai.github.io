@@ -376,7 +376,7 @@ export async function runPlan(task) {
 
   // If this is a follow-up on an ongoing task, tell the planner to consider replanning
   // Build combined task context message
-  const { history: _h, __childStatuses: _cs, __runSummary: _rs, __trajectory: _tr, __browseTrajectories: _bt, __pendingFollowUp: _pf, __stopCondition: _sc, __hasNewInput: _ni, ...contextWithoutMeta } = (task.context || {});
+  const { history: _h, __childStatuses: _cs, __runSummary: _rs, __trajectory: _tr, __browseTrajectories: _bt, __pendingFollowUp: _pf, __stopCondition: _sc, __hasNewInput: _ni, __originalPrompt: _op, ...contextWithoutMeta } = (task.context || {});
   const taskContextSections = [];
 
   if (task.context?.__hasNewInput) {
