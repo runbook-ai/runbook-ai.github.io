@@ -375,8 +375,8 @@ export async function runPlan(task) {
       // New follow-up input from user
       messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
     } else {
-      // Normal recurring run — remind the planner what to do
-      messages.push({ role: 'user', content: `[Recurring run] Execute the task: ${task.prompt}` });
+      // Normal recurring run — generic nudge without repeating the prompt
+      messages.push({ role: 'user', content: 'Recurring run. Refer to the conversation above and task context below for what to do.' });
     }
   } else {
     messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
