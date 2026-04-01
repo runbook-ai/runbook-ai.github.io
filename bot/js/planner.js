@@ -365,14 +365,19 @@ export async function runPlan(task) {
     return parts;
   }
 
-  // Replay conversation history (reply-chain from Discord) and add current prompt
+  // Replay conversation history and add current prompt
   const history = task.context?.history || [];
   if (history.length > 0) {
     for (const turn of history) {
       messages.push({ role: turn.role, content: turn.content });
     }
+    // For recurring tasks, the prompt is already in history[0] — only add if it's a new follow-up
+    if (task.context?.__hasNewInput) {
+      messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
+    }
+  } else {
+    messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
   }
-  messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
 
   // If this is a follow-up on an ongoing task, tell the planner to consider replanning
   // Build combined task context message
