@@ -371,9 +371,12 @@ export async function runPlan(task) {
     for (const turn of history) {
       messages.push({ role: turn.role, content: turn.content });
     }
-    // For recurring tasks, the prompt is already in history[0] — only add if it's a new follow-up
     if (task.context?.__hasNewInput) {
+      // New follow-up input from user
       messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
+    } else {
+      // Normal recurring run — remind the planner what to do
+      messages.push({ role: 'user', content: `[Recurring run] Execute the task: ${task.prompt}` });
     }
   } else {
     messages.push({ role: 'user', content: buildUserContent(task.prompt + nonImageSuffix) });
