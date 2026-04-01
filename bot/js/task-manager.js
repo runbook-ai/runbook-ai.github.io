@@ -352,8 +352,16 @@ export async function continueTask(task, newPrompt, { files, replyToId } = {}) {
   if (!task.context) task.context = {};
   if (!task.context.history) task.context.history = [];
   if (task.result) {
-    task.context.history.push({ role: 'user', content: task.prompt });
-    task.context.history.push({ role: 'assistant', content: task.result });
+    // For recurring tasks, skip adding the original prompt again — it's always the main prompt.
+    // Only add if this is a non-recurring task, or if the history is empty (first follow-up),
+    // or if the current prompt is a follow-up (differs from original).
+    const isRepeatedOriginal = task.schedule
+      && task.context.history.length > 0
+      && !task.context.__originalPrompt; // no __originalPrompt means prompt was restored = it's the original
+    if (!isRepeatedOriginal) {
+      task.context.history.push({ role: 'user', content: task.prompt });
+      task.context.history.push({ role: 'assistant', content: task.result });
+    }
   }
   // Update prompt to the new user input
   task.context.__hasNewInput = true;
