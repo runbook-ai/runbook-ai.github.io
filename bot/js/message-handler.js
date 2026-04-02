@@ -140,13 +140,20 @@ async function findRootMessageId(msg, botUserId, token) {
   let refId = msg.message_reference?.message_id;
   const visited = new Set();
   let lastId = refId;
+  console.log(`[handler] walking reply chain from ${msg.id}, first ref: ${refId}`);
   while (refId && !visited.has(refId)) {
     visited.add(refId);
     const refMsg = await fetchDiscordMessage(msg.channel_id, refId, token);
-    if (!refMsg) break;
+    if (!refMsg) {
+      console.warn(`[handler] fetchDiscordMessage returned null for ${refId}, stopping walk`);
+      break;
+    }
     lastId = refId;
-    refId = refMsg.message_reference?.message_id;
+    const nextRef = refMsg.message_reference?.message_id;
+    console.log(`[handler] chain: ${refId} (${refMsg.author?.bot ? 'bot' : 'user'}) → ${nextRef || 'ROOT'}`);
+    refId = nextRef;
   }
+  console.log(`[handler] root message: ${lastId}`);
   return lastId || null;
 }
 
