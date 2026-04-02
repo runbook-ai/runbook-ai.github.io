@@ -374,7 +374,7 @@ export async function continueTask(task, newPrompt, { files, replyToId } = {}) {
     task.context.__originalPrompt = task.prompt;
   }
   task.prompt = newPrompt;
-  if (replyToId) task.replyToId = replyToId;
+  // Don't update replyToId — keep the original so reply chain root resolution still works
   if (files && Object.keys(files).length > 0) {
     task.files = { ...(task.files || {}), ...files };
   }
