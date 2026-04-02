@@ -73,7 +73,9 @@ document.getElementById('connectBtn').addEventListener('click', () => {
 // This keeps all Discord-specific logic out of task-manager.js.
 setDeliveryHandler(async (task, message) => {
   const s = loadSettings();
-  const sent = await sendDiscordMessage(task.channelId, message, s.botToken, task.replyToId);
+  // Reply to the latest message in the conversation (follow-up or original)
+  const replyTo = task.context?.__lastReplyToId || task.replyToId;
+  const sent = await sendDiscordMessage(task.channelId, message, s.botToken, replyTo);
   logMessage({ channel_id: task.channelId, content: message }, 'outgoing');
   return sent;
 });

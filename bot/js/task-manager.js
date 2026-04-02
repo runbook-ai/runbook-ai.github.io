@@ -375,6 +375,8 @@ export async function continueTask(task, newPrompt, { files, replyToId } = {}) {
   }
   task.prompt = newPrompt;
   // Don't update replyToId — keep the original so reply chain root resolution still works
+  // Track the latest message for Discord reply threading
+  if (replyToId) task.context.__lastReplyToId = replyToId;
   if (files && Object.keys(files).length > 0) {
     task.files = { ...(task.files || {}), ...files };
   }
