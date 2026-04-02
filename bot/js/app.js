@@ -76,6 +76,13 @@ setDeliveryHandler(async (task, message) => {
   // Reply to the latest message in the conversation (follow-up or original)
   const replyTo = task.context?.__lastReplyToId || task.replyToId;
   const sent = await sendDiscordMessage(task.channelId, message, s.botToken, replyTo);
+  // Update __lastReplyToId to the bot's reply so the chain stays linear
+  if (sent?.id) {
+    if (!task.context) task.context = {};
+    task.context.__lastReplyToId = sent.id;
+    const { putTask } = await import('./js/task-store.js');
+    await putTask(task);
+  }
   logMessage({ channel_id: task.channelId, content: message }, 'outgoing');
   return sent;
 });
