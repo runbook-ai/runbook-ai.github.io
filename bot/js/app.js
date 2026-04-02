@@ -80,7 +80,7 @@ setDeliveryHandler(async (task, message) => {
   if (sent?.id) {
     if (!task.context) task.context = {};
     task.context.__lastReplyToId = sent.id;
-    const { putTask } = await import('./js/task-store.js');
+    const { putTask } = await import('./task-store.js');
     await putTask(task);
   }
   logMessage({ channel_id: task.channelId, content: message }, 'outgoing');
