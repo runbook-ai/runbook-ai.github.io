@@ -11,7 +11,7 @@ import { loadSettings } from './settings.js';
 import { createAndEnqueue, cancelTask } from './task-manager.js';
 import { putTask } from './task-store.js';
 import { buildWorkspaceContext } from './memory-store.js';
-import { readFile, writeFile, listFiles, deleteFile, fileInfo, grepFiles } from './file-store.js';
+import { readFile, writeFile, appendFile, listFiles, deleteFile, fileInfo, grepFiles } from './file-store.js';
 
 const EXTENSION_ID = 'kjbhngehjkiiecaflccjenmoccielojj';
 
@@ -264,6 +264,22 @@ const PLANNER_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'append_file',
+      description: 'Append content to an existing text file. Creates the file if it doesn\'t exist. Use for logs, CSVs, and other append-only data.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path' },
+          content: { type: 'string', description: 'Content to append (added to the end of the file)' },
+          mimeType: { type: 'string', description: 'MIME type if creating new file. Default: text/plain' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_files',
       description: 'List all files in persistent storage, optionally filtered by path prefix.',
       parameters: {
@@ -365,7 +381,7 @@ const DEFAULT_AGENTS = `You have access to:
 - **spawn_task**: Spawn a child task (one-shot or recurring). Child tasks run independently and do NOT message the user — only you (the parent) communicate with the user. You will see child task statuses automatically on subsequent runs via CHILD TASK STATUSES context.
 - **set_schedule**: Make the CURRENT task recurring so it re-runs on an interval. Use this when the task itself needs to repeat (e.g. "check twice a day"). The task will keep running until maxRuns is reached or you call done with stopReached=true.
 - **cancel_task**: Cancel a child task and all its descendants. Use when a child is no longer needed (e.g. user changed direction).
-- **read_file / write_file / list_files / delete_file / file_info / grep_files**: Persistent file storage. Use to save reports, CSVs, data, images, etc. that persist across task runs. Files are synced to GitHub.
+- **read_file / write_file / append_file / list_files / delete_file / file_info / grep_files**: Persistent file storage. Use to save reports, CSVs, data, images, etc. that persist across task runs. Use append_file for logs and CSVs where you add rows over time. Files are synced to GitHub.
 - **done**: Finish the plan with a summary. Always populate these fields when relevant:
   - **memory**: structured data for future runs of THIS task (replaces previous memory entirely — include everything to keep)
   - **runSummary**: for recurring tasks, a cumulative prose summary covering ALL runs so far (you'll see the previous one on the next run — update it)
@@ -634,6 +650,15 @@ export async function runPlan(task) {
               encoding: args.encoding || 'utf8',
             });
             toolResult = { written: true, path: written.path, size: written.size };
+            break;
+          }
+
+          case 'append_file': {
+            console.log('[planner] append_file:', args.path);
+            const appended = await appendFile(args.path, args.content, {
+              mimeType: args.mimeType || 'text/plain',
+            });
+            toolResult = { appended: true, path: appended.path, size: appended.size };
             break;
           }
 

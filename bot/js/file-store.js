@@ -83,6 +83,16 @@ export async function writeFile(path, content, { mimeType = 'text/plain', encodi
 }
 
 /**
+ * Append content to an existing text file. Creates the file if it doesn't exist.
+ * Only works for utf8 files.
+ */
+export async function appendFile(path, content, { mimeType = 'text/plain' } = {}) {
+  const existing = await readFile(path);
+  const newContent = existing ? existing.content + content : content;
+  return writeFile(path, newContent, { mimeType, encoding: 'utf8' });
+}
+
+/**
  * Delete a file by path. Returns true if existed.
  */
 export async function deleteFile(path) {
