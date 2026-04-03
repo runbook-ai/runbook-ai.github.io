@@ -176,7 +176,10 @@ export function pushTaskDebounced(task) {
 // ── File sync ─────────────────────────────────────────────────────────────────
 
 function fileGithubPath(record) {
-  return `files/${encodeURIComponent(record.path)}.json`;
+  // Use path segments directly — both Contents API and Trees API treat / as directories
+  // Only encode individual segments to handle spaces and special chars
+  const segments = record.path.split('/').map(s => encodeURIComponent(s));
+  return `files/${segments.join('/')}.json`;
 }
 
 async function pushFile(record) {
