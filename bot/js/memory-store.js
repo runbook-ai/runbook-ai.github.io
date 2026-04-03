@@ -210,7 +210,7 @@ export async function clearDailyMemories() {
 
 // ── Context builder (for system prompt injection) ────────────────────────────
 
-const MAX_MEMORY_CHARS = 4000;
+const MAX_MEMORY_CHARS = 20000;
 
 /**
  * Build the workspace context to inject into the planner system prompt.
@@ -231,7 +231,7 @@ export async function buildWorkspaceContext() {
     chars += section.length;
   }
 
-  const memories = await getDailyMemories(7);
+  const memories = await getDailyMemories(30);
   const dailyParts = [];
   for (const m of memories) {
     if (!m.entries || m.entries.length === 0) continue;
