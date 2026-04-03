@@ -11,6 +11,7 @@ import { loadSettings } from './settings.js';
 import { createAndEnqueue, cancelTask } from './task-manager.js';
 import { putTask } from './task-store.js';
 import { buildWorkspaceContext } from './memory-store.js';
+import { readFile, writeFile, listFiles, deleteFile, fileInfo, grepFiles } from './file-store.js';
 
 const EXTENSION_ID = 'kjbhngehjkiiecaflccjenmoccielojj';
 
@@ -232,6 +233,94 @@ const PLANNER_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'read_file',
+      description: 'Read a file from persistent storage. Returns the file content. Use for text files (CSV, JSON, markdown, etc.).',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path (e.g. "reports/daily.md", "data/prices.csv")' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_file',
+      description: 'Write content to a file in persistent storage. Creates or overwrites. Files persist across task runs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path' },
+          content: { type: 'string', description: 'File content. For binary files, provide base64-encoded string.' },
+          mimeType: { type: 'string', description: 'MIME type (e.g. "text/csv", "image/png"). Default: text/plain' },
+          encoding: { type: 'string', enum: ['utf8', 'base64'], description: 'Content encoding. Default: utf8' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_files',
+      description: 'List all files in persistent storage, optionally filtered by path prefix.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prefix: { type: 'string', description: 'Optional path prefix filter (e.g. "reports/")' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_file',
+      description: 'Delete a file from persistent storage.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path to delete' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'file_info',
+      description: 'Get file metadata (size, type, last modified) without loading content. Use for binary files or large files.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'grep_files',
+      description: 'Search through file contents for a keyword or pattern. Returns matching files with line numbers and snippets. Skips binary files.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search string or regex pattern (e.g. "/price.*\\d+/i")' },
+          prefix: { type: 'string', description: 'Optional path prefix to limit search scope' },
+          maxResults: { type: 'number', description: 'Max matching files to return. Default: 10' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'done',
       description: 'The plan is complete. Return the final summary and any data to remember. For recurring scheduled tasks, set stopReached to true when the stop condition has been met so the task auto-completes.',
       parameters: {
@@ -276,6 +365,7 @@ const DEFAULT_AGENTS = `You have access to:
 - **spawn_task**: Spawn a child task (one-shot or recurring). Child tasks run independently and do NOT message the user — only you (the parent) communicate with the user. You will see child task statuses automatically on subsequent runs via CHILD TASK STATUSES context.
 - **set_schedule**: Make the CURRENT task recurring so it re-runs on an interval. Use this when the task itself needs to repeat (e.g. "check twice a day"). The task will keep running until maxRuns is reached or you call done with stopReached=true.
 - **cancel_task**: Cancel a child task and all its descendants. Use when a child is no longer needed (e.g. user changed direction).
+- **read_file / write_file / list_files / delete_file / file_info / grep_files**: Persistent file storage. Use to save reports, CSVs, data, images, etc. that persist across task runs. Files are synced to GitHub.
 - **done**: Finish the plan with a summary. Always populate these fields when relevant:
   - **memory**: structured data for future runs of THIS task (replaces previous memory entirely — include everything to keep)
   - **runSummary**: for recurring tasks, a cumulative prose summary covering ALL runs so far (you'll see the previous one on the next run — update it)
@@ -525,6 +615,57 @@ export async function runPlan(task) {
             toolResult = cancelled
               ? { cancelled: true, taskId: args.taskId }
               : { cancelled: false, error: `Task ${args.taskId} not found` };
+            break;
+          }
+
+          case 'read_file': {
+            console.log('[planner] read_file:', args.path);
+            const file = await readFile(args.path);
+            toolResult = file
+              ? { path: file.path, content: file.content, mimeType: file.mimeType, encoding: file.encoding || 'utf8', size: file.size }
+              : { error: `File not found: ${args.path}` };
+            break;
+          }
+
+          case 'write_file': {
+            console.log('[planner] write_file:', args.path);
+            const written = await writeFile(args.path, args.content, {
+              mimeType: args.mimeType || 'text/plain',
+              encoding: args.encoding || 'utf8',
+            });
+            toolResult = { written: true, path: written.path, size: written.size };
+            break;
+          }
+
+          case 'list_files': {
+            console.log('[planner] list_files:', args.prefix || '(all)');
+            const files = await listFiles(args.prefix || '');
+            toolResult = { files, count: files.length };
+            break;
+          }
+
+          case 'delete_file': {
+            console.log('[planner] delete_file:', args.path);
+            const deleted = await deleteFile(args.path);
+            toolResult = deleted
+              ? { deleted: true, path: args.path }
+              : { deleted: false, error: `File not found: ${args.path}` };
+            break;
+          }
+
+          case 'file_info': {
+            console.log('[planner] file_info:', args.path);
+            const info = await fileInfo(args.path);
+            toolResult = info || { error: `File not found: ${args.path}` };
+            break;
+          }
+
+          case 'grep_files': {
+            console.log('[planner] grep_files:', args.query);
+            toolResult = await grepFiles(args.query, {
+              prefix: args.prefix || '',
+              maxResults: args.maxResults || 10,
+            });
             break;
           }
 

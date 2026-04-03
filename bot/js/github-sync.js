@@ -15,11 +15,14 @@ import {
   getWorkspaceFileNames,
   getAllDailyMemories, putDailyMemory,
 } from './memory-store.js';
+import { getAllFiles, putFile } from './file-store.js';
 
 // ── State ────────────────────────────────────────────────────────────────────
 
 const shaCache = new Map();       // taskId → { sha, filename }
+const fileShaCache = new Map();   // filePath → { sha, filename }
 const pendingSync = new Map();    // taskId → debounce timer
+const pendingFileSync = new Map(); // filePath → debounce timer
 let bulkSyncTimer = null;
 
 const BULK_SYNC_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
@@ -170,6 +173,51 @@ export function pushTaskDebounced(task) {
   }, DEBOUNCE_MS));
 }
 
+// ── File sync ─────────────────────────────────────────────────────────────────
+
+function fileGithubPath(record) {
+  return `files/${encodeURIComponent(record.path)}.json`;
+}
+
+async function pushFile(record) {
+  const filename = fileGithubPath(record);
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(record))));
+  const { branch } = cfg();
+  let sha = fileShaCache.get(record.path)?.sha || null;
+  if (!sha) {
+    const existing = await githubGet(`contents/${filename}?ref=${branch}`);
+    if (existing) sha = existing.sha;
+  }
+  try {
+    const result = await githubPut(`contents/${filename}`, {
+      message: `sync file ${record.path}`,
+      content, sha: sha || undefined, branch,
+    });
+    fileShaCache.set(record.path, { sha: result.content.sha, filename });
+    return result;
+  } catch (err) {
+    if (err.message.includes('409')) {
+      fileShaCache.delete(record.path);
+      const existing = await githubGet(`contents/${filename}?ref=${branch}`);
+      const result = await githubPut(`contents/${filename}`, {
+        message: `sync file ${record.path}`,
+        content, sha: existing?.sha || undefined, branch,
+      });
+      fileShaCache.set(record.path, { sha: result.content.sha, filename });
+      return result;
+    }
+    throw err;
+  }
+}
+
+export function pushFileDebounced(record) {
+  if (pendingFileSync.has(record.path)) clearTimeout(pendingFileSync.get(record.path));
+  pendingFileSync.set(record.path, setTimeout(() => {
+    pendingFileSync.delete(record.path);
+    pushFile(record).catch(err => console.warn('[github-sync] file push failed:', err.message));
+  }, DEBOUNCE_MS));
+}
+
 // ── Bulk sync (Git Trees API) ────────────────────────────────────────────────
 
 export async function bulkSync() {
@@ -215,6 +263,16 @@ export async function bulkSync() {
     tree.push({ path: `memory/${mem.date}.json`, mode: '100644', type: 'blob', sha: blob.sha });
   }
 
+  // Add persistent files
+  const allFiles = await getAllFiles();
+  for (const file of allFiles) {
+    const blob = await githubPost('git/blobs', {
+      content: btoa(unescape(encodeURIComponent(JSON.stringify(file)))),
+      encoding: 'base64',
+    });
+    tree.push({ path: fileGithubPath(file), mode: '100644', type: 'blob', sha: blob.sha });
+  }
+
   // Check if repo has any commits
   const ref = await githubGet(`git/ref/heads/${branch}`);
 
@@ -232,8 +290,8 @@ export async function bulkSync() {
       });
       shaCache.set(task.id, { sha: result.content.sha, filename });
     }
-    // Also bootstrap workspace + memory files
-    for (const entry of tree.filter(e => e.path.startsWith('workspace/') || e.path.startsWith('memory/'))) {
+    // Also bootstrap workspace + memory + file store files
+    for (const entry of tree.filter(e => e.path.startsWith('workspace/') || e.path.startsWith('memory/') || e.path.startsWith('files/'))) {
       const blobData = await githubGet(`git/blobs/${entry.sha}`);
       await githubPut(`contents/${entry.path}`, {
         message: `sync ${entry.path}`,
@@ -291,6 +349,7 @@ export async function restore() {
   const taskBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('tasks/'));
   const wsBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('workspace/'));
   const memoryBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('memory/'));
+  const fileBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('files/'));
 
   const TASK_MAX_AGE_MS = 14 * 24 * 3_600_000; // 14 days — same as cron cleanup
   const now = Date.now();
@@ -358,6 +417,21 @@ export async function restore() {
     }
     await putDailyMemory(remote);
     restored++;
+  }
+
+  // Restore persistent files (no TTL — files persist until deleted)
+  for (const blob of fileBlobs) {
+    const blobData = await githubGet(`git/blobs/${blob.sha}`);
+    const json = decodeURIComponent(escape(atob(blobData.content)));
+    const remote = JSON.parse(json);
+    const { readFile: readLocalFile } = await import('./file-store.js');
+    const local = await readLocalFile(remote.path);
+    if (local && local.updatedAt >= remote.updatedAt) {
+      skipped++;
+    } else {
+      await putFile(remote);
+      restored++;
+    }
   }
 
   return { restored, skipped };
