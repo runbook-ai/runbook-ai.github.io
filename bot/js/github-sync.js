@@ -354,7 +354,7 @@ export async function restore() {
   const memoryBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('memory/'));
   const fileBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('files/'));
 
-  const TASK_MAX_AGE_MS = 14 * 24 * 3_600_000; // 14 days — same as cron cleanup
+  const TASK_MAX_AGE_MS = 180 * 24 * 3_600_000; // 180 days — same as cron cleanup
   const now = Date.now();
   let restored = 0;
   let skipped = 0;

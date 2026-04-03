@@ -13,7 +13,7 @@ import { getDueTasks, getTasksByStatus, deleteTask, getTask } from './task-store
 
 const TICK_INTERVAL_MS = 30_000; // check every 30s
 const CLEANUP_INTERVAL_MS = 3_600_000; // cleanup every hour
-const TASK_MAX_AGE_MS = 14 * 24 * 3_600_000; // 14 days
+const TASK_MAX_AGE_MS = 180 * 24 * 3_600_000; // 180 days
 
 let tickTimer = null;
 let cleanupTimer = null;
