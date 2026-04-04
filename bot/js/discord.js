@@ -110,18 +110,16 @@ export function triggerTyping(channelId, token) {
  */
 export async function fetchDiscordMessage(channelId, messageId, token) {
   const PERMANENT_ERRORS = ['401', '403', '404', '405'];
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 5; attempt++) {
     try {
       return await discordGet(`/channels/${channelId}/messages/${messageId}`, token);
     } catch (err) {
       const msg = err.message || '';
-      // Don't retry permanent errors
       if (PERMANENT_ERRORS.some(code => msg.includes(code))) return null;
-      if (attempt >= 2) return null;
-      // Retry with delay — longer for 429
+      if (attempt >= 4) return null;
       const retryMatch = msg.match(/"retry_after":\s*([\d.]+)/);
       const delay = retryMatch ? parseFloat(retryMatch[1]) * 1000 : 2000;
-      console.warn(`[discord] fetch ${messageId} failed (${msg.slice(0, 50)}), retry ${attempt + 1}/2 in ${Math.round(delay)}ms`);
+      console.warn(`[discord] fetch ${messageId} failed (${msg.slice(0, 50)}), retry ${attempt + 1}/4 in ${Math.round(delay)}ms`);
       await new Promise(r => setTimeout(r, delay));
     }
   }
