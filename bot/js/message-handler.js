@@ -380,7 +380,7 @@ async function handleTasksCommand(channelId, replyToId, s) {
   const ongoing = allTasks.filter(t => ['running', 'queued', 'waiting', 'paused'].includes(t.status));
   const finished = allTasks
     .filter(t => (t.status === 'completed' || t.status === 'failed') && !t.parentId)
-    .sort((a, b) => (b.lastRunAt || b.updatedAt || 0) - (a.lastRunAt || a.updatedAt || 0))
+    .sort((a, b) => (b.lastRunAt || b.updatedAt || '').localeCompare(a.lastRunAt || a.updatedAt || ''))
     .slice(0, 10);
   const rootIds = new Set([...ongoing, ...finished].filter(t => !t.parentId).map(t => t.id));
 
