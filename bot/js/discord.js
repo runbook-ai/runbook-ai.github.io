@@ -98,7 +98,19 @@ export async function sendDiscordMessage(channelId, content, token, replyToId = 
       // Chain subsequent chunks to the first so reply chain walk can traverse them
       body.message_reference = { message_id: firstMsg.id };
     }
-    const resp = await discordPost(`/channels/${channelId}/messages`, body, token);
+    let resp;
+    try {
+      resp = await discordPost(`/channels/${channelId}/messages`, body, token);
+    } catch (err) {
+      // If message_reference points to a deleted/unknown message, retry without it
+      if (body.message_reference && err.message?.includes('MESSAGE_REFERENCE_UNKNOWN_MESSAGE')) {
+        console.warn('[discord] referenced message not found, sending without reply reference');
+        delete body.message_reference;
+        resp = await discordPost(`/channels/${channelId}/messages`, body, token);
+      } else {
+        throw err;
+      }
+    }
     const msg = await resp.json().catch(() => null);
     if (i === 0) firstMsg = msg;
   }
