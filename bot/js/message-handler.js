@@ -143,6 +143,8 @@ async function findRootMessageId(msg, botUserId, token) {
   console.log(`[handler] walking reply chain from ${msg.id}, first ref: ${refId}`);
   while (refId && !visited.has(refId)) {
     visited.add(refId);
+    // Small delay between fetches to avoid Discord rate limits on long chains
+    if (visited.size > 1) await new Promise(r => setTimeout(r, 300));
     const refMsg = await fetchDiscordMessage(msg.channel_id, refId, token);
     if (!refMsg) {
       console.warn(`[handler] fetchDiscordMessage returned null for ${refId}, stopping walk`);
