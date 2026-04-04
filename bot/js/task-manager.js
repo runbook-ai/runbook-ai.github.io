@@ -340,6 +340,17 @@ export async function findRootTaskByReplyToId(messageId) {
 }
 
 /**
+ * Fallback: find a root task whose __lastReplyToId matches any message in the chain.
+ * Used when the reply chain walk stops early (rate limit, broken chain) and the
+ * root message doesn't match any task's replyToId.
+ */
+export async function findTaskByChainMessageIds(messageIds) {
+  if (!messageIds || messageIds.size === 0) return null;
+  const all = await getAllTasks();
+  return all.find(t => !t.parentId && t.context?.__lastReplyToId && messageIds.has(t.context.__lastReplyToId)) || null;
+}
+
+/**
  * Continue an existing task with new user input.
  * Appends the message to conversation history and re-enqueues.
  * If the task is currently running, queues the follow-up for after it completes.

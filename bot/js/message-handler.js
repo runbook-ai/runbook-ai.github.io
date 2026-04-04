@@ -8,7 +8,7 @@ import { proxyFetch } from './proxy.js';
 import {
   createAndEnqueue, listTasks, cancelTask,
   pauseTask, resumeTask,
-  findRootTaskByReplyToId, continueTask,
+  findRootTaskByReplyToId, findTaskByChainMessageIds, continueTask,
 } from './task-manager.js';
 
 // ── Interval parsing ────────────────────────────────────────────────────────
@@ -136,6 +136,10 @@ async function downloadAttachments(attachments) {
  * The root is the first message in the chain that has no message_reference
  * (i.e. the original user message that started the conversation).
  */
+/**
+ * Walk up the Discord reply chain to find the root message ID.
+ * Returns { rootId, visitedIds } where visitedIds includes all messages in the chain.
+ */
 async function findRootMessageId(msg, botUserId, token) {
   let refId = msg.message_reference?.message_id;
   const visited = new Set();
@@ -156,7 +160,7 @@ async function findRootMessageId(msg, botUserId, token) {
     refId = nextRef;
   }
   console.log(`[handler] root message: ${lastId}`);
-  return lastId || null;
+  return { rootId: lastId || null, visitedIds: visited };
 }
 
 // ── Message handling ────────────────────────────────────────────────────────
@@ -275,17 +279,20 @@ export async function handleMessageCreate(msg, botUserId) {
 
   // If replying to a message, try to find the existing root task
   if (msg.message_reference) {
-    const rootMessageId = await findRootMessageId(msg, botUserId, s.botToken);
-    if (rootMessageId) {
-      const rootTask = await findRootTaskByReplyToId(rootMessageId);
-      if (rootTask) {
-        // Continue existing task with new user input
-        await continueTask(rootTask, content || '(see attached files)', {
-          files,
-          replyToId: msg.id,
-        });
-        return;
-      }
+    const { rootId, visitedIds } = await findRootMessageId(msg, botUserId, s.botToken);
+    let rootTask = rootId ? await findRootTaskByReplyToId(rootId) : null;
+    // Fallback: if chain walk stopped early or root is a bot message,
+    // search by __lastReplyToId matching any message in the walked chain
+    if (!rootTask && visitedIds.size > 0) {
+      rootTask = await findTaskByChainMessageIds(visitedIds);
+      if (rootTask) console.log(`[handler] fallback matched task ${rootTask.id} via __lastReplyToId`);
+    }
+    if (rootTask) {
+      await continueTask(rootTask, content || '(see attached files)', {
+        files,
+        replyToId: msg.id,
+      });
+      return;
     }
 
     // No existing task found — fall through to create a new task with reply chain history
