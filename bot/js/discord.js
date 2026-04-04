@@ -75,6 +75,9 @@ export async function sendDiscordMessage(channelId, content, token, replyToId = 
     const body = { content: chunks[i] };
     if (i === 0 && replyToId) {
       body.message_reference = { message_id: replyToId };
+    } else if (i > 0 && firstMsg?.id) {
+      // Chain subsequent chunks to the first so reply chain walk can traverse them
+      body.message_reference = { message_id: firstMsg.id };
     }
     const resp = await discordPost(`/channels/${channelId}/messages`, body, token);
     const msg = await resp.json().catch(() => null);
