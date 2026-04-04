@@ -70,16 +70,17 @@ export async function sendDiscordMessage(channelId, content, token, replyToId = 
   for (let i = 0; i < content.length; i += 1990) {
     chunks.push(content.slice(i, i + 1990));
   }
-  let lastMsg = null;
+  let firstMsg = null;
   for (let i = 0; i < chunks.length; i++) {
     const body = { content: chunks[i] };
     if (i === 0 && replyToId) {
       body.message_reference = { message_id: replyToId };
     }
     const resp = await discordPost(`/channels/${channelId}/messages`, body, token);
-    lastMsg = await resp.json().catch(() => null);
+    const msg = await resp.json().catch(() => null);
+    if (i === 0) firstMsg = msg;
   }
-  return lastMsg;
+  return firstMsg;
 }
 
 /**
