@@ -31,15 +31,18 @@ export function setDeliveryHandler(fn) {
   deliverFn = fn;
 }
 
-/** Deliver a message for a task using the registered handler. */
+/** Deliver a message for a task using the registered handler. Retries up to 3 times. */
 async function deliver(task, message) {
   if (!deliverFn || !task.channelId) return null;
-  try {
-    return await deliverFn(task, message);
-  } catch (err) {
-    console.error('[task-manager] delivery failed:', err);
-    return null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await deliverFn(task, message);
+    } catch (err) {
+      console.error(`[task-manager] delivery failed (attempt ${attempt + 1}/3):`, err);
+      if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * 2 ** attempt));
+    }
   }
+  return null;
 }
 
 // ── Typing indicator callback ──────────────────────────────────────────────

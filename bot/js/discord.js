@@ -1,13 +1,32 @@
 import { proxyFetch } from './proxy.js';
 
 const DISCORD_API = 'https://discord.com/api/v10';
+const PERMANENT_ERRORS = [401, 403, 404, 405];
+
+/**
+ * Execute a Discord REST call with retry on 429 rate limits and transient errors.
+ * Retries up to 3 times; respects Discord's retry_after header.
+ */
+async function discordFetchWithRetry(url, opts) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const resp = await proxyFetch(url, opts);
+    if (resp.status === 429 && attempt < 2) {
+      const body = await resp.json().catch(() => ({}));
+      const delay = (body.retry_after || 2) * 1000;
+      console.warn(`[discord] rate limited, retry ${attempt + 1}/2 in ${Math.round(delay)}ms`);
+      await new Promise(r => setTimeout(r, delay));
+      continue;
+    }
+    return resp;
+  }
+}
 
 /**
  * POST to a Discord REST endpoint.
- * Throws on non-2xx responses with a descriptive error message.
+ * Retries on 429 rate limits. Throws on non-2xx responses.
  */
 export async function discordPost(path, body, token) {
-  const resp = await proxyFetch(`${DISCORD_API}${path}`, {
+  const resp = await discordFetchWithRetry(`${DISCORD_API}${path}`, {
     method:  'POST',
     headers: {
       'Authorization': `Bot ${token}`,
@@ -24,10 +43,10 @@ export async function discordPost(path, body, token) {
 
 /**
  * GET from a Discord REST endpoint.
- * Returns the parsed JSON or throws on non-2xx.
+ * Retries on 429 rate limits. Returns the parsed JSON or throws on non-2xx.
  */
 export async function discordGet(path, token) {
-  const resp = await proxyFetch(`${DISCORD_API}${path}`, {
+  const resp = await discordFetchWithRetry(`${DISCORD_API}${path}`, {
     method:  'GET',
     headers: { 'Authorization': `Bot ${token}` },
   });
@@ -43,7 +62,7 @@ export async function discordGet(path, token) {
  * Safe to call even if the channel already exists — Discord returns the existing one.
  */
 export async function openDMChannel(userId, token) {
-  const resp = await proxyFetch(`${DISCORD_API}/users/@me/channels`, {
+  const resp = await discordFetchWithRetry(`${DISCORD_API}/users/@me/channels`, {
     method:  'POST',
     headers: {
       'Authorization': `Bot ${token}`,
@@ -113,13 +132,12 @@ export function triggerTyping(channelId, token) {
  * Returns the message object or null if not found.
  */
 export async function fetchDiscordMessage(channelId, messageId, token) {
-  const PERMANENT_ERRORS = ['401', '403', '404', '405'];
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       return await discordGet(`/channels/${channelId}/messages/${messageId}`, token);
     } catch (err) {
       const msg = err.message || '';
-      if (PERMANENT_ERRORS.some(code => msg.includes(code))) return null;
+      if (PERMANENT_ERRORS.some(code => msg.includes(String(code)))) return null;
       if (attempt >= 4) return null;
       const retryMatch = msg.match(/"retry_after":\s*([\d.]+)/);
       const delay = retryMatch ? parseFloat(retryMatch[1]) * 1000 : 2000;

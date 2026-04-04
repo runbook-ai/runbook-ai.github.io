@@ -60,6 +60,9 @@ function parseTaskFilename(filename) {
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
 
+const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
+const MAX_RETRIES = 3;
+
 function headers() {
   const { pat } = cfg();
   return {
@@ -69,9 +72,37 @@ function headers() {
   };
 }
 
+/**
+ * Fetch with retry for transient GitHub errors (429, 5xx) and network failures.
+ * Respects GitHub's Retry-After header for rate limits.
+ */
+async function githubFetchWithRetry(url, opts) {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url, opts);
+      if (RETRY_STATUSES.has(res.status) && attempt < MAX_RETRIES - 1) {
+        const retryAfter = res.headers.get('Retry-After');
+        const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : 1000 * 2 ** attempt;
+        console.warn(`[github-sync] ${res.status} on ${opts.method || 'GET'}, retry ${attempt + 1}/${MAX_RETRIES - 1} in ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (attempt < MAX_RETRIES - 1) {
+        const delay = 1000 * 2 ** attempt;
+        console.warn(`[github-sync] network error, retry ${attempt + 1}/${MAX_RETRIES - 1} in ${delay}ms:`, err.message);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 async function githubGet(path) {
   const { owner, repo } = cfg();
-  const res = await fetch(`${API}/repos/${owner}/${repo}/${path}`, { headers: headers() });
+  const res = await githubFetchWithRetry(`${API}/repos/${owner}/${repo}/${path}`, { headers: headers() });
   if (res.status === 404 || res.status === 409) return null;
   if (!res.ok) throw new Error(`GitHub GET ${path}: ${res.status} ${await res.text()}`);
   return res.json();
@@ -79,7 +110,7 @@ async function githubGet(path) {
 
 async function githubPut(path, body) {
   const { owner, repo } = cfg();
-  const res = await fetch(`${API}/repos/${owner}/${repo}/${path}`, {
+  const res = await githubFetchWithRetry(`${API}/repos/${owner}/${repo}/${path}`, {
     method: 'PUT',
     headers: headers(),
     body: JSON.stringify(body),
@@ -93,7 +124,7 @@ async function githubPut(path, body) {
 
 async function githubPost(path, body) {
   const { owner, repo } = cfg();
-  const res = await fetch(`${API}/repos/${owner}/${repo}/${path}`, {
+  const res = await githubFetchWithRetry(`${API}/repos/${owner}/${repo}/${path}`, {
     method: 'POST',
     headers: headers(),
     body: JSON.stringify(body),
@@ -107,7 +138,7 @@ async function githubPost(path, body) {
 
 async function githubPatch(path, body) {
   const { owner, repo } = cfg();
-  const res = await fetch(`${API}/repos/${owner}/${repo}/${path}`, {
+  const res = await githubFetchWithRetry(`${API}/repos/${owner}/${repo}/${path}`, {
     method: 'PATCH',
     headers: headers(),
     body: JSON.stringify(body),
