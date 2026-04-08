@@ -57,26 +57,6 @@ export async function discordGet(path, token) {
   return resp.json();
 }
 
-/**
- * Ensure a DM channel is open with the given user; returns the channel ID.
- * Safe to call even if the channel already exists — Discord returns the existing one.
- */
-export async function openDMChannel(userId, token) {
-  const resp = await discordFetchWithRetry(`${DISCORD_API}/users/@me/channels`, {
-    method:  'POST',
-    headers: {
-      'Authorization': `Bot ${token}`,
-      'Content-Type':  'application/json',
-    },
-    body: JSON.stringify({ recipient_id: userId }),
-  });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => String(resp.status));
-    throw new Error(`Cannot open DM channel: ${text}`);
-  }
-  const data = await resp.json();
-  return data.id;
-}
 
 /**
  * Send a message to a Discord channel.

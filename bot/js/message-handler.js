@@ -1,7 +1,7 @@
 import { loadSettings, getAllowedUsers } from './settings.js';
 import { logMessage, logSystem } from './ui.js';
 import {
-  sendDiscordMessage, addReaction, openDMChannel,
+  sendDiscordMessage, addReaction,
   fetchDiscordMessage,
 } from './discord.js';
 import { proxyFetch } from './proxy.js';
@@ -194,13 +194,7 @@ export async function handleMessageCreate(msg, botUserId) {
 
   const s = loadSettings();
 
-  let channelId = msg.channel_id;
-  try {
-    channelId = await openDMChannel(msg.author.id, s.botToken);
-  } catch (e) {
-    console.warn('[dm] openDMChannel failed:', e.message);
-    logSystem(`Could not open DM channel: ${e.message}`, 'error-msg');
-  }
+  const channelId = msg.channel_id;
 
   const content = msg.content.trim();
 
