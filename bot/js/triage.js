@@ -111,7 +111,7 @@ function buildSystemPrompt(botUsername, activeTasks, participants) {
     `Your role: triage agent for this bot (named "${botUsername}" on Discord). ` +
     `Read the conversation and decide what actions to take.\n\n` +
     `Channel participants:\n${participantList}\n\n` +
-    `To mention someone in a reply, use <@USER_ID> (e.g. <@${participants?.[0]?.id || '123'}>).\n\n` +
+    `To mention someone, use <@USER_ID> with the numeric ID (e.g. <@${participants?.[0]?.id || '123'}>). NEVER use @username — it won't render as a mention.\n\n` +
     `You have these tools:\n` +
     `- skip — the message doesn't need a response from this bot\n` +
     `- add_task — create a new task with a clear, self-contained prompt\n` +

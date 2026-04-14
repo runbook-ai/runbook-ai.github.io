@@ -417,7 +417,7 @@ export async function runPlan(task) {
     const list = participants
       .map(p => `- ${p.username} (ID: ${p.id}${p.isBot ? ', bot' : ''})`)
       .join('\n');
-    participantNote = `\n\nChannel participants:\n${list}\nTo mention someone, use <@USER_ID> in your message.`;
+    participantNote = `\n\nChannel participants:\n${list}\nTo mention someone, use <@USER_ID> with the numeric ID. NEVER use @username — it won't render as a mention.`;
   }
 
   const systemPrompt = [
