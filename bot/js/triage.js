@@ -103,6 +103,8 @@ function buildSystemPrompt(botUsername, activeTasks, participants) {
   }
 
   const soul = loadWorkspaceFile('SOUL.md')?.trim() || DEFAULT_SOUL;
+  const memoryMd = loadWorkspaceFile('MEMORY.md')?.trim();
+  const memorySection = memoryMd ? `\n\nMemory:\n${memoryMd}\n` : '';
 
   return (
     `${soul}\n\n` +
@@ -116,7 +118,8 @@ function buildSystemPrompt(botUsername, activeTasks, participants) {
     `- remove_task — cancel an existing task by ID\n` +
     `- reply — send a short text response for simple questions, status checks, or confirmations\n\n` +
     `You may call multiple tools in one response (e.g. reply with status and add a new task).\n\n` +
-    `Active tasks in this channel:\n${taskList}\n\n` +
+    `Active tasks in this channel:\n${taskList}\n` +
+    memorySection + `\n` +
     `Rules:\n` +
     `- Only act when the message is clearly directed at or relevant to this bot\n` +
     `- If users are talking to each other without involving this bot, skip\n` +
