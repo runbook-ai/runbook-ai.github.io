@@ -12,15 +12,17 @@ import { DEFAULT_SOUL, DEFAULT_AGENTS } from './planner.js';
 const fields = {
   botToken:     document.getElementById('botToken'),
   allowedUsers: document.getElementById('allowedUsers'),
-  freeApiKey:   document.getElementById('freeApiCheckbox'),
+  freeApiKey:      document.getElementById('freeApiCheckbox'),
+  forceGroupMode:  document.getElementById('forceGroupModeCheckbox'),
 };
 
 // Populate form fields from persisted settings on load.
 (function initForm() {
   const s = loadSettings();
-  fields.botToken.value     = s.botToken ?? '';
-  fields.allowedUsers.value = (s.allowedUsers ?? []).join('\n');
-  fields.freeApiKey.checked = s.freeApiKey ?? false;
+  fields.botToken.value        = s.botToken ?? '';
+  fields.allowedUsers.value    = (s.allowedUsers ?? []).join('\n');
+  fields.freeApiKey.checked    = s.freeApiKey ?? false;
+  fields.forceGroupMode.checked = s.forceGroupMode ?? false;
 })();
 
 function saveSettingsFields() {
@@ -31,15 +33,17 @@ function saveSettingsFields() {
   const current = loadSettings();
   saveSettings({
     ...current,
-    botToken:     fields.botToken.value.trim(),
-    allowedUsers: users,
-    freeApiKey:   fields.freeApiKey.checked,
+    botToken:       fields.botToken.value.trim(),
+    allowedUsers:   users,
+    freeApiKey:     fields.freeApiKey.checked,
+    forceGroupMode: fields.forceGroupMode.checked,
   });
 }
 
 fields.botToken.addEventListener('change', saveSettingsFields);
 fields.allowedUsers.addEventListener('change', saveSettingsFields);
 fields.freeApiKey.addEventListener('change', saveSettingsFields);
+fields.forceGroupMode.addEventListener('change', saveSettingsFields);
 
 document.getElementById('settingsToggle').addEventListener('click', () => {
   const hdr  = document.getElementById('settingsToggle');
@@ -73,11 +77,14 @@ document.getElementById('connectBtn').addEventListener('click', () => {
 // This keeps all Discord-specific logic out of task-manager.js.
 setDeliveryHandler(async (task, message) => {
   const s = loadSettings();
-  // Reply to the latest message in the conversation (follow-up or original)
-  const replyTo = task.context?.__lastReplyToId || task.replyToId;
-  const sent = await sendDiscordMessage(task.channelId, message, s.botToken, replyTo);
-  // Update __lastReplyToId to the bot's reply so the chain stays linear
-  if (sent?.id) {
+  // Group mode: send flat (no reply linking), DM mode: reply-chain as before
+  const isGroup = task.channelMode === 'group';
+  const replyTo = isGroup ? null : (task.context?.__lastReplyToId || task.replyToId);
+  // In group mode, prefix with task label so people know which task is reporting
+  const output = (isGroup && task.label) ? `**[${task.label}]** ${message}` : message;
+  const sent = await sendDiscordMessage(task.channelId, output, s.botToken, replyTo);
+  // Update __lastReplyToId to the bot's reply so the chain stays linear (DM only)
+  if (!isGroup && sent?.id) {
     if (!task.context) task.context = {};
     task.context.__lastReplyToId = sent.id;
     const { putTask } = await import('./task-store.js');

@@ -17,12 +17,25 @@ End-to-end testing of the bot page using Chrome DevTools MCP.
 - Extension CAN do: `navigateToUrl`, pure computation, summarize page content
 - Use tasks that don't require page interaction (e.g. "navigate to X and read the title")
 
+## Important notes
+
+- Always use `bringToFront: true` when calling `select_page` — clicking
+  and typing into elements on background tabs will fail with timeout errors.
+- Always take a fresh `take_snapshot` after `select_page` before interacting
+  with elements — stale snapshots reference elements that no longer exist.
+- Do NOT use `click` on Discord's message input textbox — it times out due
+  to Discord's Slate editor. Instead, use `type_text` directly after
+  `select_page` — Discord auto-focuses the message input.
+- The Runbook AI extension side panel must be open for tasks to execute.
+  Commands like `!help` and `!tasks` work without the extension, but
+  free-form tasks require it.
+
 ## Test Procedure
 
 ### Phase 1: Verify bot page loads correctly
 
 1. `list_pages` — identify bot page and Discord page IDs
-2. `select_page` the bot page
+2. `select_page` the bot page (with `bringToFront: true`)
 3. `take_snapshot` — verify page rendered (settings, activity log, connect button or "Connected" status)
 4. `list_console_messages` — check for:
    - `[cron] scheduler started` (cron module loaded)
@@ -44,17 +57,16 @@ End-to-end testing of the bot page using Chrome DevTools MCP.
 
 ### Phase 3: Test `!help` command
 
-1. `select_page` Discord tab
-2. `click` the message input textbox
-3. `type_text` `!help` with `submitKey: "Enter"`
+1. `select_page` Discord tab (with `bringToFront: true`) (with `bringToFront: true`)
+2. `take_snapshot` to get fresh element UIDs
+2. `type_text` `!help` with `submitKey: "Enter"`
 4. `wait_for` text `["!schedule", "!tasks"]` (timeout 15s)
 5. Verify response includes all commands: `!run`, `!schedule`, `!tasks`, `!cancel`, `!pause`, `!resume`, `!remove`, `!help`
 
 ### Phase 4: Test free-form task execution
 
-1. `click` Discord message input
-2. `type_text` `navigate to https://example.com and read the page title` with `submitKey: "Enter"`
-3. `select_page` bot page
+1. `type_text` `navigate to https://example.com and read the page title` with `submitKey: "Enter"`
+3. `select_page` bot page (with `bringToFront: true`)
 4. `take_snapshot` — verify activity log shows incoming message and "Bot thinking"
 5. `evaluate_script` — query IndexedDB for the task:
    ```js
@@ -81,15 +93,14 @@ End-to-end testing of the bot page using Chrome DevTools MCP.
    ```
 6. Wait for task to complete (poll IndexedDB or wait ~30-60s)
 7. Verify: `status: "completed"`, `runCount: 1`, `consecutiveErrors: 0`, `result` contains "Example Domain"
-8. `select_page` Discord tab — `take_snapshot` to verify bot replied with "Example Domain"
+8. `select_page` Discord tab (with `bringToFront: true`) — `take_snapshot` to verify bot replied with "Example Domain"
 
 ### Phase 5: Test `!schedule` command
 
-1. `click` Discord message input
-2. `type_text` `!schedule 1m navigate to https://example.com and tell me the page title` with `submitKey: "Enter"`
+1. `type_text` `!schedule 1m navigate to https://example.com and tell me the page title` with `submitKey: "Enter"`
 3. `wait_for` text `["Scheduled task"]` (timeout 15s)
 4. Verify bot response includes task ID and "First run starting now"
-5. `select_page` bot page
+5. `select_page` bot page (with `bringToFront: true`)
 6. `evaluate_script` — verify task in IndexedDB:
    - `status: "queued"` or `"running"` (first run is immediate)
    - `schedule: { type: "every", intervalMs: 60000 }`
@@ -98,12 +109,11 @@ End-to-end testing of the bot page using Chrome DevTools MCP.
 9. Wait for cron to fire (~60s more)
 10. `list_console_messages` — look for `[app] cron fired for task <id>`
 11. `evaluate_script` — verify `runCount: 2`
-12. `select_page` Discord tab — verify two result messages delivered
+12. `select_page` Discord tab (with `bringToFront: true`) — verify two result messages delivered
 
 ### Phase 6: Test `!tasks` command
 
-1. `click` Discord message input
-2. `type_text` `!tasks` with `submitKey: "Enter"`
+1. `type_text` `!tasks` with `submitKey: "Enter"`
 3. `wait_for` text containing a task ID (timeout 15s)
 4. Verify response lists tasks with:
    - Status icons (⏰ waiting, ✅ completed, ▶ running, etc.)
@@ -118,7 +128,7 @@ End-to-end testing of the bot page using Chrome DevTools MCP.
 3. `type_text` `!cancel <task_id>` with `submitKey: "Enter"`
 4. `wait_for` text `["Cancelled task"]` (timeout 15s)
 5. Verify response says "Cancelled task `<id>`."
-6. `select_page` bot page — `evaluate_script` to verify task `status: "failed"`, `lastError: "Cancelled by user"`
+6. `select_page` bot page (with `bringToFront: true`) — `evaluate_script` to verify task `status: "failed"`, `lastError: "Cancelled by user"`
 7. Confirm no further cron runs for this task
 
 ### Phase 8: Test `!pause` and `!resume` (optional)

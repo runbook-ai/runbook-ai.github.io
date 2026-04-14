@@ -2,7 +2,7 @@ import { loadSettings, getAllowedUsers } from './settings.js';
 import { logMessage, logSystem } from './ui.js';
 import {
   sendDiscordMessage, addReaction,
-  fetchDiscordMessage,
+  fetchDiscordMessage, fetchChannel, fetchChannelMessages,
 } from './discord.js';
 import { proxyFetch } from './proxy.js';
 import {
@@ -10,6 +10,7 @@ import {
   pauseTask, resumeTask,
   findRootTaskByReplyToId, findTaskByChainMessageIds, continueTask,
 } from './task-manager.js';
+import { triage } from './triage.js';
 
 // ── Interval parsing ────────────────────────────────────────────────────────
 
@@ -29,6 +30,102 @@ function formatMs(ms) {
   if (ms >= 3_600_000)   return (ms / 3_600_000).toFixed(1).replace(/\.0$/, '') + 'h';
   if (ms >= 60_000)      return (ms / 60_000).toFixed(1).replace(/\.0$/, '') + 'm';
   return (ms / 1000).toFixed(0) + 's';
+}
+
+// ── Channel mode detection ──────────────────────────────────────────────────
+
+/** Cache: channelId → 'dm' | 'group' */
+const channelModeCache = new Map();
+
+/**
+ * Detect whether a channel is 1:1 DM or group DM.
+ * Uses Discord REST API on first call, then caches forever (channel IDs are
+ * stable — adding participants creates a new channel).
+ * If forceGroupMode is enabled in settings, always returns 'group'.
+ */
+async function getChannelMode(channelId, token) {
+  const s = loadSettings();
+  if (s.forceGroupMode) return 'group';
+
+  if (channelModeCache.has(channelId)) return channelModeCache.get(channelId);
+
+  const channel = await fetchChannel(channelId, token);
+  // DM = type 1 (1 recipient + bot), Group DM = type 3 (2+ recipients + bot)
+  const mode = (channel?.type === 3) ? 'group' : 'dm';
+  channelModeCache.set(channelId, mode);
+  console.log(`[handler] channel ${channelId} mode: ${mode} (type=${channel?.type}, recipients=${channel?.recipients?.length})`);
+  return mode;
+}
+
+// ── Channel buffer ──────────────────────────────────────────────────────────
+
+const BUFFER_SIZE = 50;
+
+/** Per-channel rolling buffer of recent messages. */
+const channelBuffers = new Map();
+
+/** Create a buffer entry from a Discord message object. */
+function toBufferEntry(msg) {
+  return {
+    author:    msg.author?.username ?? 'unknown',
+    authorId:  msg.author?.id ?? '',
+    isBot:     !!msg.author?.bot,
+    content:   msg.content ?? '',
+    timestamp: msg.timestamp ?? new Date().toISOString(),
+    messageId: msg.id,
+  };
+}
+
+/** Append a message to the channel buffer (capped at BUFFER_SIZE). */
+function bufferAppend(channelId, entry) {
+  if (!channelBuffers.has(channelId)) channelBuffers.set(channelId, []);
+  const buf = channelBuffers.get(channelId);
+  buf.push(entry);
+  if (buf.length > BUFFER_SIZE) buf.shift();
+}
+
+/** Get the channel buffer (or empty array). */
+function getBuffer(channelId) {
+  return channelBuffers.get(channelId) ?? [];
+}
+
+/**
+ * Lazy backfill: if buffer is empty, fetch last 50 messages from Discord
+ * and populate the buffer (oldest first).
+ */
+async function ensureBuffer(channelId, token) {
+  if (channelBuffers.has(channelId) && channelBuffers.get(channelId).length > 0) return;
+
+  const messages = await fetchChannelMessages(channelId, token, BUFFER_SIZE);
+  if (!messages.length) return;
+
+  // Discord returns newest first, reverse for chronological order
+  const entries = messages.reverse().map(toBufferEntry);
+  channelBuffers.set(channelId, entries);
+  console.log(`[handler] backfilled ${entries.length} messages for channel ${channelId}`);
+}
+
+// ── Front-mention parsing ───────────────────────────────────────────────────
+
+/**
+ * Parse leading mentions from a message.
+ * Returns { frontMentions: string[], body: string }
+ * where frontMentions are the user IDs mentioned at the start.
+ */
+function parseFrontMentions(content) {
+  const mentionPattern = /^(\s*<@!?(\d+)>\s*)+/;
+  const match = content.match(mentionPattern);
+  if (!match) return { frontMentions: [], body: content.trim() };
+
+  const prefix = match[0];
+  const body = content.slice(prefix.length).trim();
+  const idPattern = /<@!?(\d+)>/g;
+  const frontMentions = [];
+  let m;
+  while ((m = idPattern.exec(prefix)) !== null) {
+    frontMentions.push(m[1]);
+  }
+  return { frontMentions, body };
 }
 
 // ── Reply-chain conversation builder ──────────────────────────────────────
@@ -133,11 +230,6 @@ async function downloadAttachments(attachments) {
 
 /**
  * Walk up the Discord reply chain to find the root message ID.
- * The root is the first message in the chain that has no message_reference
- * (i.e. the original user message that started the conversation).
- */
-/**
- * Walk up the Discord reply chain to find the root message ID.
  * Returns { rootId, visitedIds } where visitedIds includes all messages in the chain.
  */
 async function findRootMessageId(msg, botUserId, token) {
@@ -168,12 +260,28 @@ async function findRootMessageId(msg, botUserId, token) {
 /**
  * Handle an incoming Discord MESSAGE_CREATE event.
  *
- * @param {object} msg       - Discord message object from the Gateway
- * @param {string} botUserId - The bot's own user ID (to skip self-messages)
+ * @param {object} msg         - Discord message object from the Gateway
+ * @param {string} botUserId   - The bot's own user ID (to skip self-messages)
+ * @param {string} botUsername  - The bot's display name (for triager context)
  */
-export async function handleMessageCreate(msg, botUserId) {
-  if (msg.guild_id) return;
+export async function handleMessageCreate(msg, botUserId, botUsername) {
+  // Always skip own messages
   if (msg.author?.id === botUserId) return;
+
+  const s = loadSettings();
+  const channelId = msg.channel_id;
+  const mode = await getChannelMode(channelId, s.botToken);
+
+  if (mode === 'dm') {
+    await handleDM(msg, botUserId, s);
+  } else {
+    await handleGroupDM(msg, botUserId, botUsername, s);
+  }
+}
+
+// ── 1:1 DM handler (existing logic, unchanged) ─────────────────────────────
+
+async function handleDM(msg, botUserId, s) {
   if (msg.author?.bot) return;
 
   const allowedUsers = getAllowedUsers();
@@ -192,10 +300,7 @@ export async function handleMessageCreate(msg, botUserId) {
 
   logMessage(msg, 'incoming');
 
-  const s = loadSettings();
-
   const channelId = msg.channel_id;
-
   const content = msg.content.trim();
 
   // ── Commands ──────────────────────────────────────────────────────────
@@ -216,49 +321,41 @@ export async function handleMessageCreate(msg, botUserId) {
     return;
   }
 
-  // !tasks — list tasks
   if (/^!tasks\s*$/i.test(content)) {
     await handleTasksCommand(channelId, msg.id, s);
     return;
   }
 
-  // !schedule <interval> <prompt>
   const scheduleMatch = content.match(/^!schedule\s+(\S+)\s+([\s\S]+)$/i);
   if (scheduleMatch) {
     await handleScheduleCommand(msg, channelId, scheduleMatch[1], scheduleMatch[2].trim(), s);
     return;
   }
 
-  // !cancel <id>
   const cancelMatch = content.match(/^!cancel\s+(\S+)\s*$/i);
   if (cancelMatch) {
     await handleCancelCommand(channelId, msg.id, cancelMatch[1], s);
     return;
   }
 
-  // !pause <id>
   const pauseMatch = content.match(/^!pause\s+(\S+)\s*$/i);
   if (pauseMatch) {
     await handlePauseCommand(channelId, msg.id, pauseMatch[1], s);
     return;
   }
 
-  // !resume <id>
   const resumeMatch = content.match(/^!resume\s+(\S+)\s*$/i);
   if (resumeMatch) {
     await handleResumeCommand(channelId, msg.id, resumeMatch[1], s);
     return;
   }
 
-
-  // !run <runbook-name> [extra prompt text]
   const runMatch = content.match(/^!run\s+(\S+)(.*)?$/i);
   if (runMatch) {
     await handleRunCommand(msg, channelId, runMatch[1].trim(), (runMatch[2] ?? '').trim(), s);
     return;
   }
 
-  // Unknown !command
   if (content.startsWith('!')) {
     const unknown = `Unknown command. Type \`!help\` to see available commands.`;
     await sendDiscordMessage(channelId, unknown, s.botToken, msg.id);
@@ -271,12 +368,9 @@ export async function handleMessageCreate(msg, botUserId) {
   addReaction(channelId, msg.id, '%F0%9F%91%8D', s.botToken); // 👍
   const files = await downloadAttachments(msg.attachments);
 
-  // If replying to a message, try to find the existing root task
   if (msg.message_reference) {
     const { rootId, visitedIds } = await findRootMessageId(msg, botUserId, s.botToken);
     let rootTask = rootId ? await findRootTaskByReplyToId(rootId) : null;
-    // Fallback: if chain walk stopped early or root is a bot message,
-    // search by __lastReplyToId matching any message in the walked chain
     if (!rootTask && visitedIds.size > 0) {
       rootTask = await findTaskByChainMessageIds(visitedIds);
       if (rootTask) console.log(`[handler] fallback matched task ${rootTask.id} via __lastReplyToId`);
@@ -289,7 +383,6 @@ export async function handleMessageCreate(msg, botUserId) {
       return;
     }
 
-    // No existing task found — fall through to create a new task with reply chain history
     const { turns: history, files: chainFiles } = await collectReplyChain(msg, botUserId, s.botToken);
     const context = {};
     if (history.length > 0) {
@@ -308,7 +401,6 @@ export async function handleMessageCreate(msg, botUserId) {
     return;
   }
 
-  // No reply — create a fresh task
   await createAndEnqueue({
     prompt:    content || '(see attached files)',
     files:     { ...files },
@@ -317,6 +409,164 @@ export async function handleMessageCreate(msg, botUserId) {
     replyToId: msg.id,
     createdBy: msg.author?.username,
   });
+}
+
+// ── Group DM handler ────────────────────────────────────────────────────────
+
+async function handleGroupDM(msg, botUserId, botUsername, s) {
+  const channelId = msg.channel_id;
+  const content = (msg.content ?? '').trim();
+
+  // Ignore reply-linked messages in group mode (except commands we sent)
+  if (msg.message_reference) return;
+
+  logMessage(msg, 'incoming');
+
+  const { frontMentions, body } = parseFrontMentions(content);
+
+  // ── Command path: body starts with "!" ────────────────────────────────
+  if (body.startsWith('!')) {
+    // Determine if this bot should handle the command
+    if (frontMentions.length > 0 && !frontMentions.includes(botUserId)) {
+      // Mentions in front, but not this bot — ignore
+      return;
+    }
+    // No front mentions or this bot is mentioned — handle command
+    await handleGroupCommand(msg, channelId, body, s);
+    return;
+  }
+
+  // ── Triage path: non-command messages ─────────────────────────────────
+
+  // Ensure buffer is populated (lazy backfill on first message after refresh)
+  await ensureBuffer(channelId, s.botToken);
+
+  // Append to channel buffer
+  bufferAppend(channelId, toBufferEntry(msg));
+
+  // Get active tasks for this channel
+  const allTasks = await listTasks();
+  const activeTasks = allTasks
+    .filter(t =>
+      t.channelId === channelId &&
+      ['running', 'queued', 'waiting', 'paused'].includes(t.status)
+    )
+    .map(t => ({ id: t.id, prompt: t.prompt, label: t.label || null }));
+
+  // Call triager
+  let actions;
+  try {
+    actions = await triage({
+      botUsername: botUsername || 'RunbookAI',
+      buffer: getBuffer(channelId),
+      latestMsg: toBufferEntry(msg),
+      activeTasks,
+    });
+  } catch (err) {
+    console.error('[handler] triage failed:', err);
+    logSystem(`Triage error: ${err.message}`, 'error-msg');
+    return;
+  }
+
+  // Execute triage actions
+  for (const action of actions) {
+    switch (action.action) {
+      case 'skip':
+        console.log(`[handler] triage skip: ${action.reason}`);
+        break;
+
+      case 'add_task':
+        console.log(`[handler] triage add_task: ${action.reason}`);
+        await createAndEnqueue({
+          prompt:      action.prompt,
+          label:       action.label || null,
+          config:      {},
+          channelId,
+          replyToId:   null, // flat in group mode
+          createdBy:   msg.author?.username,
+          channelMode: 'group',
+          context:     {},
+        });
+        break;
+
+      case 'remove_task':
+        console.log(`[handler] triage remove_task ${action.taskId}: ${action.reason}`);
+        await cancelTask(action.taskId);
+        break;
+
+      case 'reply':
+        console.log(`[handler] triage reply: ${action.reason}`);
+        await sendDiscordMessage(channelId, action.message, s.botToken); // flat, no reply link
+        logMessage({ channel_id: channelId, content: action.message }, 'outgoing');
+        break;
+
+      default:
+        console.warn(`[handler] unknown triage action: ${action.action}`);
+    }
+  }
+}
+
+// ── Group DM command handler ────────────────────────────────────────────────
+
+async function handleGroupCommand(msg, channelId, body, s) {
+  // body has front mentions already stripped, starts with "!"
+
+  if (/^!help\s*$/i.test(body)) {
+    const help =
+      '**Commands:**\n' +
+      '`!run <runbook>` - launch a saved runbook\n' +
+      '`!schedule <interval> <prompt>` - schedule a recurring task\n' +
+      '`!tasks` - list ongoing + recent tasks\n' +
+      '`!cancel <id>` - cancel a task\n' +
+      '`!pause <id>` - pause a scheduled task\n' +
+      '`!resume <id>` - resume a paused task\n' +
+      '`!help` - show this message';
+    await sendDiscordMessage(channelId, help, s.botToken, msg.id);
+    logMessage({ channel_id: channelId, content: help }, 'outgoing');
+    return;
+  }
+
+  if (/^!tasks\s*$/i.test(body)) {
+    await handleTasksCommand(channelId, msg.id, s);
+    return;
+  }
+
+  const scheduleMatch = body.match(/^!schedule\s+(\S+)\s+([\s\S]+)$/i);
+  if (scheduleMatch) {
+    await handleScheduleCommand(msg, channelId, scheduleMatch[1], scheduleMatch[2].trim(), s);
+    return;
+  }
+
+  const cancelMatch = body.match(/^!cancel\s+(\S+)\s*$/i);
+  if (cancelMatch) {
+    await handleCancelCommand(channelId, msg.id, cancelMatch[1], s);
+    return;
+  }
+
+  const pauseMatch = body.match(/^!pause\s+(\S+)\s*$/i);
+  if (pauseMatch) {
+    await handlePauseCommand(channelId, msg.id, pauseMatch[1], s);
+    return;
+  }
+
+  const resumeMatch = body.match(/^!resume\s+(\S+)\s*$/i);
+  if (resumeMatch) {
+    await handleResumeCommand(channelId, msg.id, resumeMatch[1], s);
+    return;
+  }
+
+  const runMatch = body.match(/^!run\s+(\S+)(.*)?$/i);
+  if (runMatch) {
+    await handleRunCommand(msg, channelId, runMatch[1].trim(), (runMatch[2] ?? '').trim(), s);
+    return;
+  }
+
+  if (body.startsWith('!')) {
+    const unknown = `Unknown command. Type \`!help\` to see available commands.`;
+    await sendDiscordMessage(channelId, unknown, s.botToken, msg.id);
+    logMessage({ channel_id: channelId, content: unknown }, 'outgoing');
+    return;
+  }
 }
 
 // ── Command handlers ────────────────────────────────────────────────────────

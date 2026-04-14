@@ -72,7 +72,7 @@ export async function enqueueTask(task) {
 }
 
 /** Create and enqueue a new task from a user message. */
-export async function createAndEnqueue({ prompt, files, config, channelId, replyToId, createdBy, schedule, maxRuns, parentId, context }) {
+export async function createAndEnqueue({ prompt, files, config, channelId, replyToId, createdBy, schedule, maxRuns, parentId, context, channelMode, label }) {
   const task = createTaskRecord({
     prompt,
     files: files ?? {},
@@ -84,6 +84,8 @@ export async function createAndEnqueue({ prompt, files, config, channelId, reply
     maxRuns: maxRuns ?? null,
     parentId: parentId ?? null,
     context: context ?? {},
+    channelMode: channelMode ?? null,
+    label: label ?? null,
     // First run is always immediate; nextRunAt is set after the first run completes
     nextRunAt: null,
     status: 'queued',

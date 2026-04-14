@@ -29,6 +29,7 @@ export const gw = {
   sessionId:        null,        // active session ID (for RESUME)
   resumeGatewayUrl: null,        // preferred reconnect URL from READY
   botUserId:        null,        // bot's own user ID (to filter self-messages)
+  botUsername:       null,        // bot's display name (for triager context)
   reconnectTimer:   null,
   reconnectDelay:   1000,        // ms; doubles on each failure, capped at 60 s
   stopped:          false,       // true when the user explicitly disconnected
@@ -132,6 +133,7 @@ function onDispatch(event, data) {
   switch (event) {
     case 'READY':
       gw.botUserId        = data.user.id;
+      gw.botUsername       = data.user.username;
       gw.sessionId        = data.session_id;
       gw.resumeGatewayUrl = data.resume_gateway_url;
       gw.reconnectDelay   = 1000; // reset backoff after a clean connect
@@ -146,7 +148,7 @@ function onDispatch(event, data) {
       break;
 
     case 'MESSAGE_CREATE':
-      handleMessageCreate(data, gw.botUserId);
+      handleMessageCreate(data, gw.botUserId, gw.botUsername);
       break;
   }
 }
@@ -210,6 +212,7 @@ export function gwDisconnect() {
   gw.seq              = null;
   gw.resumeGatewayUrl = null;
   gw.botUserId        = null;
+  gw.botUsername       = null;
   gw.reconnectDelay   = 1000;
   setStatus('', 'Disconnected');
   setConnectBtn('Connect', 'btn-primary', false);

@@ -12,23 +12,11 @@ import { createAndEnqueue, cancelTask } from './task-manager.js';
 import { putTask } from './task-store.js';
 import { buildWorkspaceContext } from './memory-store.js';
 import { readFile, writeFile, appendFile, listFiles, deleteFile, fileInfo, grepFiles } from './file-store.js';
-
-const EXTENSION_ID = 'kjbhngehjkiiecaflccjenmoccielojj';
+import { extensionCall } from './extension.js';
 
 /** Thrown when the user cancels a headless task in the extension. */
 export class UserCancelledError extends Error {
   constructor() { super('Task cancelled by user'); }
-}
-
-// ── Extension messaging ────────────────────────────────────────────────────
-
-async function extensionCall(action, args) {
-  if (typeof chrome === 'undefined' || !chrome.runtime) {
-    throw new Error('Runbook AI extension is not available on this page');
-  }
-  const resp = await chrome.runtime.sendMessage(EXTENSION_ID, { action, args });
-  if (resp?.error) throw new Error(resp.message || resp.error);
-  return resp;
 }
 
 /** LLM reasoning with tool use — no browser lock, fast and cheap. */

@@ -120,6 +120,30 @@ export function triggerTyping(channelId, token) {
 }
 
 /**
+ * Fetch channel info (participants, type, etc).
+ * Returns the channel object or null on error.
+ */
+export async function fetchChannel(channelId, token) {
+  try {
+    return await discordGet(`/channels/${channelId}`, token);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch recent messages from a channel for buffer backfill.
+ * Returns an array of message objects (newest first), or [] on error.
+ */
+export async function fetchChannelMessages(channelId, token, limit = 50) {
+  try {
+    return await discordGet(`/channels/${channelId}/messages?limit=${limit}`, token);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Fetch a single Discord message by ID from a channel.
  * Returns the message object or null if not found.
  */
