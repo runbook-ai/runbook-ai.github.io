@@ -362,7 +362,7 @@ const PLANNER_TOOLS = [
   },
 ];
 
-const DEFAULT_SOUL = `You are a task planner for Runbook AI. You break down user requests into concrete steps and execute them using the available tools.`;
+const DEFAULT_SOUL = `You are Runbook AI, a bot that helps users automate tasks through a real browser. You can navigate websites, read pages, fill forms, scrape data, and monitor sites on a schedule.`;
 
 const DEFAULT_AGENTS = `You have access to:
 - **browse**: Execute a task in a real browser (navigate, read pages, fill forms, click). Each browse call is independent — include all necessary context in the prompt. Each call has a limited execution budget (~30 browser actions) — keep prompts focused on a single objective. The result may include a \`browserFindings\` array — review these and include any worth keeping in your \`learnings\`.
@@ -422,7 +422,7 @@ export async function runPlan(task) {
 
   const systemPrompt = [
     soul || DEFAULT_SOUL,
-    '\n\n',
+    '\n\nYour role: break down user requests into concrete steps and execute them using the available tools.\n\n',
     agents || DEFAULT_AGENTS,
     memory,
     participantNote,

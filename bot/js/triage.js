@@ -1,12 +1,14 @@
 /**
  * Triager — lightweight LLM call that decides what to do with an incoming
  * group DM message. Uses function calling to return structured actions
- * (skip, add_task, remove_task). Intentionally simple — no workspace context,
- * no SOUL.md/MEMORY.md. Heavy lifting is left to the planner.
+ * (skip, add_task, remove_task, reply). Reads SOUL.md for bot identity
+ * context. Heavy lifting is left to the planner.
  */
 
 import { loadSettings } from './settings.js';
 import { extensionCall } from './extension.js';
+import { loadWorkspaceFile } from './memory-store.js';
+import { DEFAULT_SOUL } from './planner.js';
 
 // ── Tool definitions ────────────────────────────────────────────────────────
 
@@ -100,9 +102,12 @@ function buildSystemPrompt(botUsername, activeTasks, participants) {
       .join('\n');
   }
 
+  const soul = loadWorkspaceFile('SOUL.md')?.trim() || DEFAULT_SOUL;
+
   return (
-    `You are a triage agent for a Discord bot named "${botUsername}". ` +
-    `Your job is to read the conversation and decide what actions to take.\n\n` +
+    `${soul}\n\n` +
+    `Your role: triage agent for this bot (named "${botUsername}" on Discord). ` +
+    `Read the conversation and decide what actions to take.\n\n` +
     `Channel participants:\n${participantList}\n\n` +
     `To mention someone in a reply, use <@USER_ID> (e.g. <@${participants?.[0]?.id || '123'}>).\n\n` +
     `You have these tools:\n` +
