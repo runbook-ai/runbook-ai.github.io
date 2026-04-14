@@ -81,7 +81,7 @@ const TRIAGE_TOOLS = [
 
 // ── System prompt ───────────────────────────────────────────────────────────
 
-function buildSystemPrompt(botUsername, activeTasks) {
+function buildSystemPrompt(botUsername, activeTasks, participants) {
   let taskList = 'None';
   if (activeTasks.length > 0) {
     taskList = activeTasks
@@ -93,9 +93,18 @@ function buildSystemPrompt(botUsername, activeTasks) {
       .join('\n');
   }
 
+  let participantList = 'Unknown';
+  if (participants && participants.length > 0) {
+    participantList = participants
+      .map(p => `- ${p.username} (ID: ${p.id}${p.isBot ? ', bot' : ''})`)
+      .join('\n');
+  }
+
   return (
     `You are a triage agent for a Discord bot named "${botUsername}". ` +
     `Your job is to read the conversation and decide what actions to take.\n\n` +
+    `Channel participants:\n${participantList}\n\n` +
+    `To mention someone in a reply, use <@USER_ID> (e.g. <@${participants?.[0]?.id || '123'}>).\n\n` +
     `You have these tools:\n` +
     `- skip — the message doesn't need a response from this bot\n` +
     `- add_task — create a new task with a clear, self-contained prompt\n` +
@@ -158,7 +167,7 @@ function formatBuffer(buffer, latestMsg) {
  * @param {Array}  opts.activeTasks - Active tasks in this channel [{ id, prompt }]
  * @returns {Array<{ action: string, reason: string, prompt?: string, taskId?: string }>}
  */
-export async function triage({ botUsername, buffer, latestMsg, activeTasks }) {
+export async function triage({ botUsername, buffer, latestMsg, activeTasks, participants }) {
   const s = loadSettings();
   const freeConfig = s.freeApiKey
     ? { llmBaseUrl: 'https://llm.runbookai.net/v1', llmApiKey: 'free' }
@@ -168,7 +177,7 @@ export async function triage({ botUsername, buffer, latestMsg, activeTasks }) {
 
   try {
     const messages = [
-      { role: 'system', content: buildSystemPrompt(botUsername, activeTasks) },
+      { role: 'system', content: buildSystemPrompt(botUsername, activeTasks, participants) },
       { role: 'user', content: formatBuffer(buffer, latestMsg) },
     ];
 

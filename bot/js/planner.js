@@ -409,11 +409,23 @@ const MAX_BROWSE = 5;
 export async function runPlan(task) {
   const scheduleNote = task.schedule ? ' This is a recurring task.' : '';
   const { soul, agents, memory } = await buildWorkspaceContext();
+
+  // Build participant context for group DM tasks
+  let participantNote = '';
+  const participants = task.context?.__participants;
+  if (participants && participants.length > 0) {
+    const list = participants
+      .map(p => `- ${p.username} (ID: ${p.id}${p.isBot ? ', bot' : ''})`)
+      .join('\n');
+    participantNote = `\n\nChannel participants:\n${list}\nTo mention someone, use <@USER_ID> in your message.`;
+  }
+
   const systemPrompt = [
     soul || DEFAULT_SOUL,
     '\n\n',
     agents || DEFAULT_AGENTS,
     memory,
+    participantNote,
     `\n\nCurrent date time: ${new Date().toString()}\nRun #${task.runCount} of this task.${scheduleNote}`,
   ].join('');
   const messages = [

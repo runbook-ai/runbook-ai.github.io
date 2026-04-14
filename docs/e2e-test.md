@@ -140,6 +140,94 @@ End-to-end testing of the bot page using Chrome DevTools MCP.
 5. Send `!resume <id>` — verify response and task `status: "waiting"` with `nextRunAt` set
 6. Cancel the task to clean up: `!cancel <id>`
 
+## Group DM Mode Tests
+
+Enable "Force group DM mode" in the bot page Configuration section before
+running these tests. This treats the 1:1 DM channel as a group DM so the
+triage path is exercised.
+
+### Phase G1: Verify group mode is active
+
+1. `select_page` bot page (with `bringToFront: true`)
+2. `take_snapshot` — expand Configuration if needed
+3. Verify "Force group DM mode" checkbox is checked
+4. If not, `click` the checkbox and verify `forceGroupMode: true` in localStorage
+
+### Phase G2: Test `!help` command in group mode
+
+1. `select_page` Discord tab (with `bringToFront: true`)
+2. `type_text` `!help` with `submitKey: "Enter"`
+3. `select_page` bot page (with `bringToFront: true`)
+4. Verify activity log shows incoming `!help` and outgoing commands list
+5. `select_page` Discord tab (with `bringToFront: true`) — verify response is **reply-linked** to the command message
+
+### Phase G3: Test triager reply (simple question)
+
+1. `type_text` `what are you working on?` with `submitKey: "Enter"`
+2. `select_page` bot page (with `bringToFront: true`)
+3. Wait for response, verify activity log shows outgoing reply
+4. Check console for `[triage] 1 action(s): reply`
+5. `select_page` Discord tab (with `bringToFront: true`) — verify response is **flat** (no "replying to" header)
+
+### Phase G4: Test triager add_task (task request)
+
+1. `type_text` `check the title of example.com` with `submitKey: "Enter"`
+2. `select_page` bot page (with `bringToFront: true`)
+3. Check console for `[triage] 1 action(s): add_task`
+4. Wait for task to complete (poll IndexedDB or wait ~30s)
+5. Verify task record has `channelMode: 'group'` and `label` is set
+6. `select_page` Discord tab (with `bringToFront: true`) — verify:
+   - Response is **flat** (no "replying to" header)
+   - Response is prefixed with **[label]** (e.g. `[check example.com title]`)
+
+### Phase G5: Test triager skip (irrelevant message)
+
+1. `type_text` `hey bob how's it going` with `submitKey: "Enter"`
+2. `select_page` bot page (with `bringToFront: true`)
+3. Wait ~15s, verify no outgoing message in activity log
+4. Check console for `[triage] 1 action(s): skip`
+
+### Phase G6: Test mention in incoming message
+
+This tests that the bot correctly handles messages where it is @mentioned.
+
+1. `select_page` Discord tab (with `bringToFront: true`)
+2. `type_text` `@RunbookAI Bot what is 3+3` with `submitKey: "Enter"`
+   (Discord auto-completes the mention to `<@BOT_ID>`)
+3. `select_page` bot page (with `bringToFront: true`)
+4. Verify the message was received (appears in activity log)
+5. Check console — the triager should process it (not skip)
+6. Verify the bot creates a task or replies
+
+### Phase G7: Test mention in outgoing message
+
+This tests that the bot can tag other participants in its responses.
+Requires channel participants to be available in the triager/planner context.
+
+1. `select_page` bot page (with `bringToFront: true`)
+2. `evaluate_script` to verify participants are cached:
+   ```js
+   () => {
+     // Access the module's internal state via a test helper
+     const log = document.getElementById('logContainer').innerText;
+     return log.includes('participants:');
+   }
+   ```
+3. Check console for `[handler] channel ... participants: ...` log line
+4. `select_page` Discord tab (with `bringToFront: true`)
+5. `type_text` a prompt that asks the bot to mention someone, e.g.:
+   `tell runbookai that the task is done`
+6. Verify the bot's response includes a `<@USER_ID>` mention (rendered as
+   a clickable @mention in Discord)
+
+### Phase G8: Test reply-linked messages are ignored
+
+1. `select_page` Discord tab (with `bringToFront: true`)
+2. Reply to an existing message (use Discord's reply UI)
+3. `select_page` bot page (with `bringToFront: true`)
+4. Verify the replied message does NOT appear in activity log
+5. Check console — no triage log for that message
+
 ## Cleanup
 
 After testing, cancel/remove any remaining scheduled tasks:

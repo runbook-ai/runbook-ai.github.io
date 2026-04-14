@@ -34,27 +34,46 @@ function formatMs(ms) {
 
 // ── Channel mode detection ──────────────────────────────────────────────────
 
-/** Cache: channelId → 'dm' | 'group' */
-const channelModeCache = new Map();
+/** Cache: channelId → { mode: 'dm'|'group', participants: [{id,username,isBot}] } */
+const channelInfoCache = new Map();
 
 /**
- * Detect whether a channel is 1:1 DM or group DM.
+ * Detect whether a channel is 1:1 DM or group DM and cache participants.
  * Uses Discord REST API on first call, then caches forever (channel IDs are
  * stable — adding participants creates a new channel).
- * If forceGroupMode is enabled in settings, always returns 'group'.
+ * If forceGroupMode is enabled in settings, forces group mode.
  */
-async function getChannelMode(channelId, token) {
+async function getChannelInfo(channelId, token) {
   const s = loadSettings();
-  if (s.forceGroupMode) return 'group';
 
-  if (channelModeCache.has(channelId)) return channelModeCache.get(channelId);
+  if (!channelInfoCache.has(channelId)) {
+    const channel = await fetchChannel(channelId, token);
+    const mode = (s.forceGroupMode || channel?.type === 3) ? 'group' : 'dm';
+    const participants = (channel?.recipients || []).map(r => ({
+      id: r.id,
+      username: r.username,
+      isBot: !!r.bot,
+    }));
+    channelInfoCache.set(channelId, { mode, participants });
+    console.log(`[handler] channel ${channelId} mode: ${mode} (type=${channel?.type}, participants: ${participants.map(p => p.username).join(', ')})`);
+  }
 
-  const channel = await fetchChannel(channelId, token);
-  // DM = type 1 (1 recipient + bot), Group DM = type 3 (2+ recipients + bot)
-  const mode = (channel?.type === 3) ? 'group' : 'dm';
-  channelModeCache.set(channelId, mode);
-  console.log(`[handler] channel ${channelId} mode: ${mode} (type=${channel?.type}, recipients=${channel?.recipients?.length})`);
-  return mode;
+  const cached = channelInfoCache.get(channelId);
+  // forceGroupMode can be toggled at runtime, so always check
+  if (s.forceGroupMode && cached.mode !== 'group') {
+    cached.mode = 'group';
+  }
+  return cached;
+}
+
+/** Get just the channel mode. */
+async function getChannelMode(channelId, token) {
+  return (await getChannelInfo(channelId, token)).mode;
+}
+
+/** Get cached participants for a channel. */
+async function getChannelParticipants(channelId, token) {
+  return (await getChannelInfo(channelId, token)).participants;
 }
 
 // ── Channel buffer ──────────────────────────────────────────────────────────
@@ -444,7 +463,8 @@ async function handleGroupDM(msg, botUserId, botUsername, s) {
   // Append to channel buffer
   bufferAppend(channelId, toBufferEntry(msg));
 
-  // Get active tasks for this channel
+  // Get channel participants and active tasks
+  const participants = await getChannelParticipants(channelId, s.botToken);
   const allTasks = await listTasks();
   const activeTasks = allTasks
     .filter(t =>
@@ -461,6 +481,7 @@ async function handleGroupDM(msg, botUserId, botUsername, s) {
       buffer: getBuffer(channelId),
       latestMsg: toBufferEntry(msg),
       activeTasks,
+      participants,
     });
   } catch (err) {
     console.error('[handler] triage failed:', err);
@@ -485,7 +506,7 @@ async function handleGroupDM(msg, botUserId, botUsername, s) {
           replyToId:   null, // flat in group mode
           createdBy:   msg.author?.username,
           channelMode: 'group',
-          context:     {},
+          context:     { __participants: participants },
         });
         break;
 
