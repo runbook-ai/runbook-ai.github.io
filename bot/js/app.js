@@ -6,6 +6,7 @@ import { sendDiscordMessage, triggerTyping } from './discord.js';
 import { logMessage } from './ui.js';
 import { loadWorkspaceFile, saveWorkspaceFile, getDailyMemories, clearDailyMemories } from './memory-store.js';
 import { DEFAULT_SOUL, DEFAULT_AGENTS } from './planner.js';
+import { LOCAL_CHANNEL_ID, deliverToLocalUI, showLocalTyping } from './local-ui.js';
 
 // -- Settings form -------------------------------------------------------------
 
@@ -71,19 +72,22 @@ document.getElementById('connectBtn').addEventListener('click', () => {
   }
 });
 
-// -- Delivery handler (Discord) ------------------------------------------------
+// -- Delivery handler (Discord or Local UI) ------------------------------------
 
-// Wire up Discord message delivery for the task manager.
-// This keeps all Discord-specific logic out of task-manager.js.
+// Routes outgoing messages to Discord or the local chat UI based on channelId.
 setDeliveryHandler(async (task, message) => {
+  // Local UI channel — render in the browser, no Discord call needed
+  if (task.channelId === LOCAL_CHANNEL_ID) {
+    deliverToLocalUI(task, message);
+    return null;
+  }
+
+  // Discord channel
   const s = loadSettings();
-  // Group mode: send flat (no reply linking), DM mode: reply-chain as before
   const isGroup = task.channelMode === 'group';
   const replyTo = isGroup ? null : (task.context?.__lastReplyToId || task.replyToId);
-  // In group mode, prefix with task label so people know which task is reporting
   const output = (isGroup && task.label) ? `**[${task.label}]** ${message}` : message;
   const sent = await sendDiscordMessage(task.channelId, output, s.botToken, replyTo);
-  // Update __lastReplyToId to the bot's reply so the chain stays linear (DM only)
   if (!isGroup && sent?.id) {
     if (!task.context) task.context = {};
     task.context.__lastReplyToId = sent.id;
@@ -96,6 +100,10 @@ setDeliveryHandler(async (task, message) => {
 
 // Wire up typing indicator
 setTypingHandler((task) => {
+  if (task.channelId === LOCAL_CHANNEL_ID) {
+    showLocalTyping(true);
+    return;
+  }
   const s = loadSettings();
   triggerTyping(task.channelId, s.botToken);
 });

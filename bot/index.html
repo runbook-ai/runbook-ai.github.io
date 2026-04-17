@@ -358,6 +358,57 @@
     .sync-dot.error   { background: #ef4444; }
     .sync-dot.idle    { background: #d1d5db; }
 
+    /* -- Local Chat card --------------------------------------- */
+    .local-chat-messages {
+      min-height: 220px;
+      max-height: 50vh;
+      overflow-y: auto;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      font-size: 0.875rem;
+      scroll-behavior: smooth;
+    }
+
+    .local-chat-empty {
+      color: #9ca3af;
+      font-style: italic;
+      text-align: center;
+      padding: 40px 0;
+    }
+
+    .local-chat-input-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      padding: 12px 20px;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .local-chat-input-row textarea {
+      flex: 1;
+      padding: 9px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 0.9375rem;
+      color: #374151;
+      background: #f9fafb;
+      outline: none;
+      resize: none;
+      height: 40px;
+      line-height: 1.5;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      overflow-y: hidden;
+    }
+
+    .local-chat-input-row textarea:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+      background: #fff;
+    }
+
     /* -- Memory card ------------------------------------------- */
     .memory-section { border-top: 1px solid #e5e7eb; padding-top: 16px; }
     .memory-section h3 {
@@ -582,6 +633,28 @@
             <button class="btn btn-danger" id="clearLearningsBtn" style="padding:4px 12px;font-size:0.8125rem;">Clear All</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- -- Local Chat ------------------------------------------- -->
+    <div class="card">
+      <div class="card-header">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <h2>Local Chat</h2>
+        <span style="margin-left:6px;font-size:0.75rem;color:#9ca3af;font-weight:400;">no Discord required</span>
+      </div>
+      <div class="local-chat-messages" id="localChatMessages">
+        <div class="local-chat-empty">Send a message below to run a task directly from this page.</div>
+      </div>
+      <div id="localChatTyping" class="processing" style="display:none;padding:0 20px 10px;">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <span>Bot is working…</span>
+      </div>
+      <div class="local-chat-input-row">
+        <textarea id="localChatInput" placeholder="Message the bot… (Enter to send, Shift+Enter for newline)" rows="1"></textarea>
+        <button class="btn btn-primary" id="localChatSend">Send</button>
       </div>
     </div>
 
