@@ -409,6 +409,67 @@
       background: #fff;
     }
 
+    /* -- Reply button on bot messages -------------------------- */
+    .log-entry.outgoing { position: relative; }
+    .log-entry.outgoing .reply-btn {
+      display: none;
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      background: #fff;
+      border: 1px solid #c7d2fe;
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 0.75rem;
+      color: #6366f1;
+      cursor: pointer;
+      line-height: 1.6;
+    }
+    .log-entry.outgoing:hover .reply-btn { display: block; }
+    .log-entry.outgoing .reply-btn:hover { background: #eef2ff; }
+
+    /* -- Reply reference quote inside a message ---------------- */
+    .log-reply-ref {
+      background: #e0e7ff;
+      border-left: 3px solid #6366f1;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 0.8rem;
+      color: #4338ca;
+      margin-bottom: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* -- Reply banner above the input row ---------------------- */
+    .local-chat-reply-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 20px;
+      background: #eef2ff;
+      border-top: 1px solid #c7d2fe;
+      font-size: 0.8125rem;
+      color: #4338ca;
+    }
+    .local-chat-reply-banner .reply-preview {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .local-chat-reply-banner .cancel-reply {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #6b7280;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0 2px;
+    }
+    .local-chat-reply-banner .cancel-reply:hover { color: #374151; }
+
     /* -- Memory card ------------------------------------------- */
     .memory-section { border-top: 1px solid #e5e7eb; padding-top: 16px; }
     .memory-section h3 {
@@ -651,6 +712,11 @@
       <div id="localChatTyping" class="processing" style="display:none;padding:0 20px 10px;">
         <div class="dots"><span></span><span></span><span></span></div>
         <span>Bot is working…</span>
+      </div>
+      <div class="local-chat-reply-banner" id="localChatReplyBanner" style="display:none">
+        <span>↩ Replying to Bot:</span>
+        <span class="reply-preview" id="localChatReplyPreview"></span>
+        <button class="cancel-reply" id="localChatCancelReply" title="Cancel reply">✕</button>
       </div>
       <div class="local-chat-input-row">
         <textarea id="localChatInput" placeholder="Message the bot… (Enter to send, Shift+Enter for newline)" rows="1"></textarea>

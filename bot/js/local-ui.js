@@ -37,11 +37,32 @@ function getContainer() {
   return document.getElementById('localChatMessages');
 }
 
+// ── Reply state ───────────────────────────────────────────────────────────────
+
+let pendingReplyTaskId = null;
+
+function setReply(taskId, previewText) {
+  pendingReplyTaskId = taskId;
+  const banner = document.getElementById('localChatReplyBanner');
+  const preview = document.getElementById('localChatReplyPreview');
+  if (banner) banner.style.display = 'flex';
+  if (preview) preview.textContent = previewText.slice(0, 120);
+  document.getElementById('localChatInput')?.focus();
+}
+
+function clearReply() {
+  pendingReplyTaskId = null;
+  const banner = document.getElementById('localChatReplyBanner');
+  if (banner) banner.style.display = 'none';
+}
+
 /**
  * Append a chat bubble to the local chat panel.
  * role: 'user' | 'bot' | 'system'
+ * opts.taskId   — for bot messages: stored as data-task-id to enable reply
+ * opts.replyRef — text snippet of the message being replied to (shown as quote)
  */
-function appendMessage(content, role) {
+function appendMessage(content, role, opts = {}) {
   const container = getContainer();
   if (!container) return;
 
@@ -56,6 +77,8 @@ function appendMessage(content, role) {
     role === 'bot'    ? 'outgoing'    : '',
     role === 'system' ? 'system-msg'  : '',
   ].filter(Boolean).join(' ');
+
+  if (opts.taskId) entry.dataset.taskId = opts.taskId;
 
   const meta = document.createElement('div');
   meta.className = 'log-meta';
@@ -76,7 +99,26 @@ function appendMessage(content, role) {
 
   const msgDiv = document.createElement('div');
   msgDiv.className = 'log-content';
-  msgDiv.textContent = content;
+
+  // Reply reference quote
+  if (opts.replyRef) {
+    const refDiv = document.createElement('div');
+    refDiv.className = 'log-reply-ref';
+    refDiv.textContent = opts.replyRef.slice(0, 120);
+    msgDiv.appendChild(refDiv);
+  }
+
+  const textNode = document.createTextNode(content);
+  msgDiv.appendChild(textNode);
+
+  // Reply button for bot messages
+  if (role === 'bot' && opts.taskId) {
+    const replyBtn = document.createElement('button');
+    replyBtn.className = 'reply-btn';
+    replyBtn.textContent = '↩ Reply';
+    replyBtn.addEventListener('click', () => setReply(opts.taskId, content));
+    entry.appendChild(replyBtn);
+  }
 
   entry.append(meta, msgDiv);
   container.appendChild(entry);
@@ -94,7 +136,7 @@ export function showLocalTyping(show) {
 
 export function deliverToLocalUI(task, message) {
   showLocalTyping(false);
-  appendMessage(message, 'bot');
+  appendMessage(message, 'bot', { taskId: task.id });
   logMessage({ channel_id: LOCAL_CHANNEL_ID, content: message }, 'outgoing');
 }
 
@@ -260,7 +302,14 @@ export async function handleLocalSend(content) {
   content = content.trim();
   if (!content) return;
 
-  appendMessage(content, 'user');
+  // Capture and clear reply state before any async work
+  const replyToId = pendingReplyTaskId;
+  const replyRef = replyToId
+    ? document.querySelector(`[data-task-id="${replyToId}"] .log-content`)?.textContent?.trim()
+    : null;
+  clearReply();
+
+  appendMessage(content, 'user', replyRef ? { replyRef } : {});
   logMessage({ channel_id: LOCAL_CHANNEL_ID, content }, 'incoming');
 
   if (content.startsWith('!')) {
@@ -273,7 +322,7 @@ export async function handleLocalSend(content) {
     files:     {},
     config:    {},
     channelId: LOCAL_CHANNEL_ID,
-    replyToId: null,
+    replyToId: replyToId || null,
     createdBy: 'local',
   });
 }
@@ -284,6 +333,8 @@ function initDom() {
   const input   = document.getElementById('localChatInput');
   const sendBtn = document.getElementById('localChatSend');
   if (!input || !sendBtn) return;
+
+  document.getElementById('localChatCancelReply')?.addEventListener('click', clearReply);
 
   sendBtn.addEventListener('click', async () => {
     const content = input.value;
