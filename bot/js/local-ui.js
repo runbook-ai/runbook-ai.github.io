@@ -9,7 +9,6 @@
 import {
   createAndEnqueue, listTasks, cancelTask, pauseTask, resumeTask,
 } from './task-manager.js';
-import { logMessage } from './ui.js';
 
 export const LOCAL_CHANNEL_ID = 'local:ui';
 
@@ -34,7 +33,7 @@ function formatMs(ms) {
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 
 function getContainer() {
-  return document.getElementById('localChatMessages');
+  return document.getElementById('chatFeed');
 }
 
 // ── Reply state ───────────────────────────────────────────────────────────────
@@ -43,16 +42,16 @@ let pendingReplyTaskId = null;
 
 function setReply(taskId, previewText) {
   pendingReplyTaskId = taskId;
-  const banner = document.getElementById('localChatReplyBanner');
-  const preview = document.getElementById('localChatReplyPreview');
+  const banner = document.getElementById('chatReplyBanner');
+  const preview = document.getElementById('chatReplyPreview');
   if (banner) banner.style.display = 'flex';
   if (preview) preview.textContent = previewText.slice(0, 120);
-  document.getElementById('localChatInput')?.focus();
+  document.getElementById('chatInput')?.focus();
 }
 
 function clearReply() {
   pendingReplyTaskId = null;
-  const banner = document.getElementById('localChatReplyBanner');
+  const banner = document.getElementById('chatReplyBanner');
   if (banner) banner.style.display = 'none';
 }
 
@@ -67,8 +66,7 @@ function appendMessage(content, role, opts = {}) {
   if (!container) return;
 
   // Remove empty-state placeholder
-  const empty = container.querySelector('.local-chat-empty');
-  if (empty) empty.remove();
+  document.getElementById('chatEmpty')?.remove();
 
   const entry = document.createElement('div');
   entry.className = [
@@ -128,7 +126,7 @@ function appendMessage(content, role, opts = {}) {
 // ── Typing indicator ──────────────────────────────────────────────────────────
 
 export function showLocalTyping(show) {
-  const el = document.getElementById('localChatTyping');
+  const el = document.getElementById('chatTyping');
   if (el) el.style.display = show ? 'flex' : 'none';
 }
 
@@ -137,7 +135,6 @@ export function showLocalTyping(show) {
 export function deliverToLocalUI(task, message) {
   showLocalTyping(false);
   appendMessage(message, 'bot', { taskId: task.id });
-  logMessage({ channel_id: LOCAL_CHANNEL_ID, content: message }, 'outgoing');
 }
 
 // ── Command handling ──────────────────────────────────────────────────────────
@@ -310,7 +307,6 @@ export async function handleLocalSend(content) {
   clearReply();
 
   appendMessage(content, 'user', replyRef ? { replyRef } : {});
-  logMessage({ channel_id: LOCAL_CHANNEL_ID, content }, 'incoming');
 
   if (content.startsWith('!')) {
     await handleLocalCommand(content);
@@ -330,11 +326,11 @@ export async function handleLocalSend(content) {
 // ── DOM wiring ────────────────────────────────────────────────────────────────
 
 function initDom() {
-  const input   = document.getElementById('localChatInput');
-  const sendBtn = document.getElementById('localChatSend');
+  const input   = document.getElementById('chatInput');
+  const sendBtn = document.getElementById('chatSend');
   if (!input || !sendBtn) return;
 
-  document.getElementById('localChatCancelReply')?.addEventListener('click', clearReply);
+  document.getElementById('chatCancelReply')?.addEventListener('click', clearReply);
 
   sendBtn.addEventListener('click', async () => {
     const content = input.value;

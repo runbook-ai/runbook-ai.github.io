@@ -14,10 +14,11 @@ export function setConnectBtn(text, cls, disabled) {
   btn.disabled    = disabled;
 }
 
-/** Collapse the Settings card (called automatically after a successful READY). */
+/** Collapse the Settings panel and show the chat panel (called after a successful READY). */
 export function collapseSettings() {
-  document.getElementById('settingsToggle').classList.remove('open');
-  document.getElementById('settingsBody').classList.add('hidden');
+  document.getElementById('settingsPanel')?.classList.add('hidden');
+  document.getElementById('chatPanel')?.classList.remove('hidden');
+  document.getElementById('settingsPanelBtn')?.classList.remove('active');
 }
 
 // -- Activity log --------------------------------------------------------------
@@ -32,14 +33,14 @@ export function escHtml(str) {
 }
 
 function getLogContainer() {
-  return document.getElementById('logContainer');
+  return document.getElementById('chatFeed');
 }
 
 const MAX_LOG_ENTRIES = 100;
 
 /** Append a DOM element to the log and scroll to the bottom. */
 export function appendLog(el) {
-  document.getElementById('logEmpty')?.remove();
+  document.getElementById('chatEmpty')?.remove();
   const container = getLogContainer();
   container.appendChild(el);
   while (container.children.length > MAX_LOG_ENTRIES) {
@@ -62,8 +63,10 @@ export function logSystem(msg, type = 'system-msg') {
   appendLog(el);
 }
 
-/** Append an incoming or outgoing Discord message to the log. */
+/** Append an incoming or outgoing message to the feed.
+ *  For local:ui channel the channel badge is omitted (already shown as chat bubble). */
 export function logMessage(msg, direction) {
+  if (msg.channel_id === 'local:ui') return; // rendered as chat bubbles by local-ui.js
   const el = document.createElement('div');
   el.className = `log-entry ${direction}`;
   const chBadge    = `<span class="ch-badge">#${escHtml(msg.channel_id)}</span>`;
@@ -86,9 +89,9 @@ export function showProcessing(channelId) {
   hideProcessing();
   processingEl = document.createElement('div');
   processingEl.className = 'processing';
+  const badge = channelId === 'local:ui' ? '' : `<span class="ch-badge">#${escHtml(channelId)}</span>`;
   processingEl.innerHTML =
-    `<span class="ch-badge">#${escHtml(channelId)}</span>` +
-    `<span>Bot thinking</span>` +
+    `${badge}<span>Bot thinking</span>` +
     `<span class="dots"><span></span><span></span><span></span></span>`;
   appendLog(processingEl);
 }

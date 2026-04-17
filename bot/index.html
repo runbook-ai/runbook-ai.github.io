@@ -11,15 +11,15 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       background: #f5f7fa;
       color: #1a1a2e;
-      min-height: 100vh;
+      height: 100vh;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
     }
 
     /* -- Nav ------------------------------------------------- */
     .site-nav {
-      position: sticky;
-      top: 0;
+      position: relative;
       z-index: 100;
       background: rgba(255,255,255,0.92);
       backdrop-filter: blur(8px);
@@ -67,10 +67,7 @@
       50%       { opacity: 0.4; }
     }
 
-    .status-text {
-      font-size: 0.875rem;
-      color: #6b7280;
-    }
+    .status-text { font-size: 0.875rem; color: #6b7280; }
 
     /* -- Buttons ----------------------------------------------- */
     .btn {
@@ -99,19 +96,253 @@
     .btn-ghost { background: #f3f4f6; color: #374151; }
     .btn-ghost:hover:not(:disabled) { background: #e5e7eb; }
 
-    /* -- Layout ------------------------------------------------ */
-    .app-body {
+    .btn-ghost.active { background: #eef2ff; color: #6366f1; }
+
+    /* -- App shell (fills remaining height) -------------------- */
+    .app-shell {
       flex: 1;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
       max-width: 900px;
       width: 100%;
       margin: 0 auto;
-      padding: 24px 16px;
-      gap: 20px;
+      padding: 0 16px 16px;
     }
 
-    /* -- Card -------------------------------------------------- */
+    /* -- Settings panel ---------------------------------------- */
+    .settings-panel {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 16px 0;
+    }
+    .settings-panel.hidden { display: none; }
+
+    .settings-intro {
+      font-size: 0.875rem;
+      color: #6b7280;
+      text-align: center;
+      padding: 4px 0 4px;
+      line-height: 1.5;
+    }
+    .settings-intro small { display: block; font-size: 0.8125rem; color: #9ca3af; margin-top: 3px; }
+
+    /* -- Chat panel -------------------------------------------- */
+    .chat-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      margin-top: 16px;
+    }
+    .chat-panel.hidden { display: none; }
+
+    .chat-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-bottom: 1px solid #e5e7eb;
+      flex-shrink: 0;
+    }
+    .chat-panel-header h2 {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #374151;
+      flex: 1;
+    }
+
+    /* -- Unified feed ------------------------------------------ */
+    .chat-feed {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      font-size: 0.875rem;
+      scroll-behavior: smooth;
+    }
+
+    .chat-empty {
+      color: #9ca3af;
+      font-style: italic;
+      text-align: center;
+      padding: 40px 0;
+    }
+
+    /* -- Log entries (shared by chat + discord messages) ------- */
+    .log-entry { display: flex; flex-direction: column; gap: 4px; }
+
+    .log-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      color: #9ca3af;
+    }
+
+    .log-author          { font-weight: 600; }
+    .log-author.user     { color: #5865F2; }
+    .log-author.bot      { color: #059669; }
+    .log-author.system   { color: #6b7280; }
+
+    .log-content {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 10px 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .log-entry.outgoing    .log-content { background: #eef2ff; border-color: #c7d2fe; }
+    .log-entry.system-msg  .log-content { background: #f0fdf4; border-color: #bbf7d0; color: #15803d; font-size: 0.8125rem; }
+    .log-entry.error-msg   .log-content { background: #fef2f2; border-color: #fecaca; color: #dc2626; font-size: 0.8125rem; }
+
+    /* Discord source badge in feed */
+    .ch-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 7px;
+      background: #ede9fe;
+      color: #7c3aed;
+      border-radius: 4px;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      font-family: ui-monospace, "SFMono-Regular", monospace;
+    }
+
+    /* -- Processing indicator ---------------------------------- */
+    .processing {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+      color: #6b7280;
+      font-size: 0.8125rem;
+    }
+
+    .dots span {
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #9ca3af;
+      margin: 0 1px;
+      animation: bounce 1.2s infinite ease-in-out;
+    }
+    .dots span:nth-child(2) { animation-delay: 0.2s; }
+    .dots span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40%            { transform: translateY(-5px); }
+    }
+
+    /* -- Reply button on bot messages -------------------------- */
+    .log-entry.outgoing { position: relative; }
+    .log-entry.outgoing .reply-btn {
+      display: none;
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      background: #fff;
+      border: 1px solid #c7d2fe;
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 0.75rem;
+      color: #6366f1;
+      cursor: pointer;
+      line-height: 1.6;
+    }
+    .log-entry.outgoing:hover .reply-btn { display: block; }
+    .log-entry.outgoing .reply-btn:hover { background: #eef2ff; }
+
+    /* -- Reply reference quote inside a message ---------------- */
+    .log-reply-ref {
+      background: #e0e7ff;
+      border-left: 3px solid #6366f1;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 0.8rem;
+      color: #4338ca;
+      margin-bottom: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* -- Reply banner above the input row ---------------------- */
+    .chat-reply-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 20px;
+      background: #eef2ff;
+      border-top: 1px solid #c7d2fe;
+      font-size: 0.8125rem;
+      color: #4338ca;
+      flex-shrink: 0;
+    }
+    .chat-reply-banner .reply-preview {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chat-reply-banner .cancel-reply {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #6b7280;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0 2px;
+    }
+    .chat-reply-banner .cancel-reply:hover { color: #374151; }
+
+    /* -- Chat input row ---------------------------------------- */
+    .chat-input-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      padding: 12px 20px;
+      border-top: 1px solid #e5e7eb;
+      flex-shrink: 0;
+    }
+
+    .chat-input-row textarea {
+      flex: 1;
+      padding: 9px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 0.9375rem;
+      color: #374151;
+      background: #f9fafb;
+      outline: none;
+      resize: none;
+      height: 40px;
+      line-height: 1.5;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      overflow-y: hidden;
+    }
+    .chat-input-row textarea:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+      background: #fff;
+    }
+
+    /* -- Card (for settings sections) -------------------------- */
     .card {
       background: #fff;
       border: 1px solid #e5e7eb;
@@ -240,96 +471,7 @@
       font-style: italic;
     }
 
-    /* -- Activity log ------------------------------------------ */
-    .log-container {
-      min-height: 300px;
-      max-height: 58vh;
-      overflow-y: auto;
-      padding: 16px 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      font-size: 0.875rem;
-      scroll-behavior: smooth;
-    }
-
-    .log-empty {
-      color: #9ca3af;
-      font-style: italic;
-      text-align: center;
-      padding: 40px 0;
-    }
-
-    .log-entry { display: flex; flex-direction: column; gap: 4px; }
-
-    .log-meta {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.75rem;
-      color: #9ca3af;
-    }
-
-    .log-author          { font-weight: 600; }
-    .log-author.user     { color: #5865F2; }
-    .log-author.bot      { color: #059669; }
-    .log-author.system   { color: #6b7280; }
-
-    .log-content {
-      background: #f9fafb;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      padding: 10px 14px;
-      line-height: 1.6;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    .log-entry.outgoing    .log-content { background: #eef2ff; border-color: #c7d2fe; }
-    .log-entry.system-msg  .log-content { background: #f0fdf4; border-color: #bbf7d0; color: #15803d; font-size: 0.8125rem; }
-    .log-entry.error-msg   .log-content { background: #fef2f2; border-color: #fecaca; color: #dc2626; font-size: 0.8125rem; }
-
-    /* -- Processing indicator ---------------------------------- */
-    .processing {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 4px 0;
-      color: #6b7280;
-      font-size: 0.8125rem;
-    }
-
-    .dots span {
-      display: inline-block;
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: #9ca3af;
-      margin: 0 1px;
-      animation: bounce 1.2s infinite ease-in-out;
-    }
-    .dots span:nth-child(2) { animation-delay: 0.2s; }
-    .dots span:nth-child(3) { animation-delay: 0.4s; }
-
-    @keyframes bounce {
-      0%, 80%, 100% { transform: translateY(0); }
-      40%            { transform: translateY(-5px); }
-    }
-
-    /* -- Channel badge ----------------------------------------- */
-    .ch-badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 1px 7px;
-      background: #ede9fe;
-      color: #7c3aed;
-      border-radius: 4px;
-      font-size: 0.6875rem;
-      font-weight: 600;
-      font-family: ui-monospace, "SFMono-Regular", monospace;
-    }
-
-    /* -- GitHub Sync card -------------------------------------- */
+    /* -- GitHub Sync ------------------------------------------- */
     .sync-actions {
       display: flex;
       align-items: center;
@@ -337,7 +479,6 @@
       margin-top: 16px;
       flex-wrap: wrap;
     }
-
     .sync-status {
       display: flex;
       align-items: center;
@@ -346,7 +487,6 @@
       font-size: 0.8125rem;
       color: #6b7280;
     }
-
     .sync-dot {
       width: 8px;
       height: 8px;
@@ -357,118 +497,6 @@
     .sync-dot.syncing { background: #f59e0b; animation: pulse 1s infinite; }
     .sync-dot.error   { background: #ef4444; }
     .sync-dot.idle    { background: #d1d5db; }
-
-    /* -- Local Chat card --------------------------------------- */
-    .local-chat-messages {
-      min-height: 220px;
-      max-height: 50vh;
-      overflow-y: auto;
-      padding: 16px 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      font-size: 0.875rem;
-      scroll-behavior: smooth;
-    }
-
-    .local-chat-empty {
-      color: #9ca3af;
-      font-style: italic;
-      text-align: center;
-      padding: 40px 0;
-    }
-
-    .local-chat-input-row {
-      display: flex;
-      align-items: flex-end;
-      gap: 10px;
-      padding: 12px 20px;
-      border-top: 1px solid #e5e7eb;
-    }
-
-    .local-chat-input-row textarea {
-      flex: 1;
-      padding: 9px 12px;
-      border: 1px solid #d1d5db;
-      border-radius: 8px;
-      font-family: inherit;
-      font-size: 0.9375rem;
-      color: #374151;
-      background: #f9fafb;
-      outline: none;
-      resize: none;
-      height: 40px;
-      line-height: 1.5;
-      transition: border-color 0.15s, box-shadow 0.15s;
-      overflow-y: hidden;
-    }
-
-    .local-chat-input-row textarea:focus {
-      border-color: #6366f1;
-      box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
-      background: #fff;
-    }
-
-    /* -- Reply button on bot messages -------------------------- */
-    .log-entry.outgoing { position: relative; }
-    .log-entry.outgoing .reply-btn {
-      display: none;
-      position: absolute;
-      top: 6px;
-      right: 6px;
-      background: #fff;
-      border: 1px solid #c7d2fe;
-      border-radius: 6px;
-      padding: 2px 8px;
-      font-size: 0.75rem;
-      color: #6366f1;
-      cursor: pointer;
-      line-height: 1.6;
-    }
-    .log-entry.outgoing:hover .reply-btn { display: block; }
-    .log-entry.outgoing .reply-btn:hover { background: #eef2ff; }
-
-    /* -- Reply reference quote inside a message ---------------- */
-    .log-reply-ref {
-      background: #e0e7ff;
-      border-left: 3px solid #6366f1;
-      border-radius: 4px;
-      padding: 4px 10px;
-      font-size: 0.8rem;
-      color: #4338ca;
-      margin-bottom: 6px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    /* -- Reply banner above the input row ---------------------- */
-    .local-chat-reply-banner {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 20px;
-      background: #eef2ff;
-      border-top: 1px solid #c7d2fe;
-      font-size: 0.8125rem;
-      color: #4338ca;
-    }
-    .local-chat-reply-banner .reply-preview {
-      flex: 1;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .local-chat-reply-banner .cancel-reply {
-      background: none;
-      border: none;
-      cursor: pointer;
-      color: #6b7280;
-      font-size: 1rem;
-      line-height: 1;
-      padding: 0 2px;
-    }
-    .local-chat-reply-banner .cancel-reply:hover { color: #374151; }
 
     /* -- Memory card ------------------------------------------- */
     .memory-section { border-top: 1px solid #e5e7eb; padding-top: 16px; }
@@ -513,16 +541,15 @@
       font-style: italic;
     }
 
-    .site-footer {
-      background: #fff;
-      border-top: 1px solid #e5e7eb;
-      padding: 28px 24px;
+    /* -- Settings footer --------------------------------------- */
+    .settings-footer {
       text-align: center;
       font-size: 0.8125rem;
       color: #9ca3af;
+      padding: 8px 0 4px;
     }
-    .site-footer a { color: #6b7280; text-decoration: none; }
-    .site-footer a:hover { color: #6366f1; }
+    .settings-footer a { color: #6b7280; text-decoration: none; }
+    .settings-footer a:hover { color: #6366f1; }
   </style>
 </head>
 <body>
@@ -540,213 +567,205 @@
     <div class="nav-right">
       <span class="status-dot" id="statusDot"></span>
       <span class="status-text" id="statusText">Disconnected</span>
+      <button class="btn btn-ghost" id="settingsPanelBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        Settings
+      </button>
       <button class="btn btn-primary" id="connectBtn">Connect</button>
     </div>
   </nav>
 
-  <div class="app-body">
+  <div class="app-shell">
 
-    <p style="font-size:0.9375rem;color:#6b7280;text-align:center;padding:4px 0 4px;">
-      Invoke the Runbook AI agent remotely by sending a DM to your bot. Keep this browser tab open and active.
-    </p>
-    <p style="font-size:0.8125rem;color:#9ca3af;text-align:center;padding:0 0 4px;">
-      Tip: In Chrome, go to Settings &rarr; Performance and add this site to "Always keep these sites active" to prevent the tab from being suspended.
-    </p>
+    <!-- -- Settings panel (hidden by default) ------------------- -->
+    <div id="settingsPanel" class="settings-panel hidden">
 
-    <!-- -- Settings --------------------------------------------- -->
-    <div class="card">
-      <div class="card-header clickable open" id="settingsToggle">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-        <h2>Configuration</h2>
-        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
-      </div>
-      <div class="card-body" id="settingsBody">
-        <p class="field-hint" style="margin-bottom:16px;">
-          New here? Use the <a href="/runbooks/?runbook=create-discord-bot">Create Discord Bot</a> runbook to set up everything automatically.
-        </p>
-        <div class="form-grid">
+      <p class="settings-intro">
+        Invoke the Runbook AI agent by sending a DM to your bot. Keep this tab open and active.
+        <small>Tip: In Chrome, go to Settings → Performance and add this site to "Always keep these sites active".</small>
+      </p>
 
-          <div class="field">
-            <label for="messagingApp">Messaging App</label>
-            <select id="messagingApp">
-              <option value="discord">Discord</option>
-            </select>
-            <div class="field-hint">More platforms coming soon.</div>
-          </div>
-
-          <div class="field">
-            <label for="botToken">Bot Token</label>
-            <input type="password" id="botToken" placeholder="your-bot-token-here" autocomplete="off" spellcheck="false" />
-            <div class="field-hint">
-              Your Discord bot token from <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">discord.com/developers/applications</a>.
-              Under <em>Bot - Privileged Gateway Intents</em>, enable <strong>Message Content Intent</strong>.
+      <!-- Configuration -->
+      <div class="card">
+        <div class="card-header clickable open" id="settingsToggle">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <h2>Configuration</h2>
+          <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+        <div class="card-body" id="settingsBody">
+          <p class="field-hint" style="margin-bottom:16px;">
+            New here? Use the <a href="/runbooks/?runbook=create-discord-bot">Create Discord Bot</a> runbook to set up everything automatically.
+          </p>
+          <div class="form-grid">
+            <div class="field">
+              <label for="messagingApp">Messaging App</label>
+              <select id="messagingApp">
+                <option value="discord">Discord</option>
+              </select>
+              <div class="field-hint">More platforms coming soon.</div>
+            </div>
+            <div class="field">
+              <label for="botToken">Bot Token</label>
+              <input type="password" id="botToken" placeholder="your-bot-token-here" autocomplete="off" spellcheck="false" />
+              <div class="field-hint">
+                Your Discord bot token from <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">discord.com/developers/applications</a>.
+                Under <em>Bot - Privileged Gateway Intents</em>, enable <strong>Message Content Intent</strong>.
+              </div>
+            </div>
+            <div class="field form-full">
+              <label for="allowedUsers">Allowed Users</label>
+              <textarea id="allowedUsers" placeholder="username1&#10;username2" spellcheck="false"></textarea>
+              <div class="field-hint">One Discord username per line. Leave empty to allow no one.</div>
             </div>
           </div>
-
-          <div class="field form-full">
-            <label for="allowedUsers">Allowed Users</label>
-            <textarea id="allowedUsers" placeholder="username1&#10;username2" spellcheck="false"></textarea>
-            <div class="field-hint">One Discord username per line. Leave empty to allow no one.</div>
+          <div class="free-api-row">
+            <input type="checkbox" id="freeApiCheckbox">
+            <label for="freeApiCheckbox">Use free API key</label>
+            <span class="free-badge">FREE</span>
+            <span class="free-hint">Rate limited — bring your own key for faster responses.</span>
           </div>
-
-
-        </div>
-        <div class="free-api-row">
-          <input type="checkbox" id="freeApiCheckbox">
-          <label for="freeApiCheckbox">Use free API key</label>
-          <span class="free-badge">FREE</span>
-          <span class="free-hint">Rate limited — bring your own key for faster responses.</span>
-        </div>
-        <div class="free-api-row">
-          <input type="checkbox" id="forceGroupModeCheckbox">
-          <label for="forceGroupModeCheckbox">Force group DM mode</label>
-          <span class="free-hint">Treat all channels as group DMs — messages are triaged by AI before creating tasks.</span>
+          <div class="free-api-row">
+            <input type="checkbox" id="forceGroupModeCheckbox">
+            <label for="forceGroupModeCheckbox">Force group DM mode</label>
+            <span class="free-hint">Treat all channels as group DMs — messages are triaged by AI before creating tasks.</span>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- -- GitHub Sync ------------------------------------------ -->
-    <div class="card">
-      <div class="card-header clickable" id="syncToggle">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-        </svg>
-        <h2>GitHub Sync</h2>
-        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
+      <!-- GitHub Sync -->
+      <div class="card">
+        <div class="card-header clickable" id="syncToggle">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          <h2>GitHub Sync</h2>
+          <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+        <div class="card-body hidden" id="syncBody">
+          <p style="color:#9ca3af;font-size:.85rem;margin:0 0 1rem">Sync your data to a GitHub repo for backup and version history.</p>
+          <div class="form-grid">
+            <div class="field">
+              <label for="githubPat">GitHub PAT</label>
+              <input type="password" id="githubPat" placeholder="github_pat_..." autocomplete="off" spellcheck="false" />
+              <div class="field-hint">Fine-grained PAT with <code>contents:write</code> on one repo.</div>
+            </div>
+            <div class="field">
+              <label for="githubRepo">Repository</label>
+              <input type="text" id="githubRepo" placeholder="user/runbookai-backup" autocomplete="off" spellcheck="false" />
+              <div class="field-hint">owner/repo format</div>
+            </div>
+          </div>
+          <div class="free-api-row">
+            <input type="checkbox" id="autoSyncCheckbox" checked>
+            <label for="autoSyncCheckbox">Auto-sync on data changes</label>
+          </div>
+          <div class="free-api-row">
+            <input type="checkbox" id="autoBulkSyncCheckbox" checked>
+            <label for="autoBulkSyncCheckbox">Auto bulk sync every 2 hours</label>
+          </div>
+          <div class="sync-actions">
+            <button class="btn btn-ghost" id="testConnBtn">Test Connection</button>
+            <button class="btn btn-primary" id="syncNowBtn">Sync Now</button>
+            <button class="btn btn-danger" id="restoreBtn">Restore</button>
+            <span class="save-ok" id="syncOk" style="display:none"></span>
+          </div>
+          <div class="sync-status">
+            <span class="sync-dot idle" id="syncDot"></span>
+            <span id="syncStatusText">Not configured</span>
+          </div>
+        </div>
       </div>
-      <div class="card-body hidden" id="syncBody">
-        <p style="color:#9ca3af;font-size:.85rem;margin:0 0 1rem">Sync your data to a GitHub repo for backup and version history.</p>
-        <div class="form-grid">
+
+      <!-- Memory -->
+      <div class="card">
+        <div class="card-header clickable" id="memoryToggle">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+          </svg>
+          <h2>Memory</h2>
+          <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+        <div class="card-body hidden" id="memoryBody">
           <div class="field">
-            <label for="githubPat">GitHub PAT</label>
-            <input type="password" id="githubPat" placeholder="github_pat_..." autocomplete="off" spellcheck="false" />
-            <div class="field-hint">Fine-grained PAT with <code>contents:write</code> on one repo.</div>
+            <label for="wsFileSelect">Workspace File</label>
+            <select id="wsFileSelect" style="margin-bottom:8px;">
+              <option value="SOUL.md">SOUL.md — persona &amp; tone</option>
+              <option value="AGENTS.md">AGENTS.md — behavior &amp; guidelines</option>
+              <option value="MEMORY.md" selected>MEMORY.md — facts &amp; knowledge</option>
+            </select>
+            <textarea id="wsFileEditor" placeholder="" style="height:140px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.8125rem;line-height:1.5;" spellcheck="false"></textarea>
+            <div class="field-hint" id="wsFileHint">Injected into every task's system prompt. Edit freely.</div>
           </div>
-          <div class="field">
-            <label for="githubRepo">Repository</label>
-            <input type="text" id="githubRepo" placeholder="user/runbookai-backup" autocomplete="off" spellcheck="false" />
-            <div class="field-hint">owner/repo format</div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="saveWsFileBtn">Save</button>
+            <button class="btn btn-ghost" id="resetWsFileBtn">Reset to Default</button>
+            <span class="save-ok" id="wsFileOk" style="display:none">Saved</span>
           </div>
-        </div>
-        <div class="free-api-row">
-          <input type="checkbox" id="autoSyncCheckbox" checked>
-          <label for="autoSyncCheckbox">Auto-sync on data changes</label>
-        </div>
-        <div class="free-api-row">
-          <input type="checkbox" id="autoBulkSyncCheckbox" checked>
-          <label for="autoBulkSyncCheckbox">Auto bulk sync every 2 hours</label>
-        </div>
-        <div class="sync-actions">
-          <button class="btn btn-ghost" id="testConnBtn">Test Connection</button>
-          <button class="btn btn-primary" id="syncNowBtn">Sync Now</button>
-          <button class="btn btn-danger" id="restoreBtn">Restore</button>
-          <span class="save-ok" id="syncOk" style="display:none"></span>
-        </div>
-        <div class="sync-status">
-          <span class="sync-dot idle" id="syncDot"></span>
-          <span id="syncStatusText">Not configured</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- -- Memory ------------------------------------------------ -->
-    <div class="card">
-      <div class="card-header clickable" id="memoryToggle">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-        </svg>
-        <h2>Memory</h2>
-        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
-      </div>
-      <div class="card-body hidden" id="memoryBody">
-        <div class="field">
-          <label for="wsFileSelect">Workspace File</label>
-          <select id="wsFileSelect" style="margin-bottom:8px;">
-            <option value="SOUL.md">SOUL.md — persona &amp; tone</option>
-            <option value="AGENTS.md">AGENTS.md — behavior &amp; guidelines</option>
-            <option value="MEMORY.md" selected>MEMORY.md — facts &amp; knowledge</option>
-          </select>
-          <textarea id="wsFileEditor" placeholder="" style="height:140px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.8125rem;line-height:1.5;" spellcheck="false"></textarea>
-          <div class="field-hint" id="wsFileHint">Injected into every task's system prompt. Edit freely.</div>
-        </div>
-        <div class="form-actions">
-          <button class="btn btn-primary" id="saveWsFileBtn">Save</button>
-          <button class="btn btn-ghost" id="resetWsFileBtn">Reset to Default</button>
-          <span class="save-ok" id="wsFileOk" style="display:none">Saved</span>
-        </div>
-
-        <div class="memory-section" style="margin-top:20px;">
-          <h3>Learnings</h3>
-          <div id="learningsList">
-            <div class="memory-empty">No learnings yet. The bot saves insights after completing tasks.</div>
-          </div>
-          <div style="margin-top:10px;">
-            <button class="btn btn-danger" id="clearLearningsBtn" style="padding:4px 12px;font-size:0.8125rem;">Clear All</button>
+          <div class="memory-section" style="margin-top:20px;">
+            <h3>Learnings</h3>
+            <div id="learningsList">
+              <div class="memory-empty">No learnings yet. The bot saves insights after completing tasks.</div>
+            </div>
+            <div style="margin-top:10px;">
+              <button class="btn btn-danger" id="clearLearningsBtn" style="padding:4px 12px;font-size:0.8125rem;">Clear All</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- -- Local Chat ------------------------------------------- -->
-    <div class="card">
-      <div class="card-header">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <p class="settings-footer">
+        &copy; Runbook AI &mdash; open source &amp; community driven. &nbsp;&middot;&nbsp;
+        <a href="/about/privacy-policy.html">Privacy Policy</a> &middot;
+        <a href="/about/terms-of-service.html">Terms of Service</a>
+      </p>
+
+    </div><!-- /settingsPanel -->
+
+    <!-- -- Chat panel (shown by default) ----------------------- -->
+    <div id="chatPanel" class="chat-panel">
+      <div class="chat-panel-header">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
         </svg>
-        <h2>Local Chat</h2>
-        <span style="margin-left:6px;font-size:0.75rem;color:#9ca3af;font-weight:400;">no Discord required</span>
+        <h2>Messages</h2>
+        <button class="btn btn-ghost" id="clearBtn" style="margin-left:auto;padding:4px 12px;font-size:0.8125rem;">Clear</button>
       </div>
-      <div class="local-chat-messages" id="localChatMessages">
-        <div class="local-chat-empty">Send a message below to run a task directly from this page.</div>
+
+      <div class="chat-feed" id="chatFeed">
+        <div class="chat-empty" id="chatEmpty">Send a message below, or connect Discord to start receiving messages.</div>
       </div>
-      <div id="localChatTyping" class="processing" style="display:none;padding:0 20px 10px;">
+
+      <div id="chatTyping" class="processing" style="display:none;padding:4px 20px 8px;flex-shrink:0;">
         <div class="dots"><span></span><span></span><span></span></div>
         <span>Bot is working…</span>
       </div>
-      <div class="local-chat-reply-banner" id="localChatReplyBanner" style="display:none">
+
+      <div class="chat-reply-banner" id="chatReplyBanner" style="display:none">
         <span>↩ Replying to Bot:</span>
-        <span class="reply-preview" id="localChatReplyPreview"></span>
-        <button class="cancel-reply" id="localChatCancelReply" title="Cancel reply">✕</button>
+        <span class="reply-preview" id="chatReplyPreview"></span>
+        <button class="cancel-reply" id="chatCancelReply" title="Cancel reply">✕</button>
       </div>
-      <div class="local-chat-input-row">
-        <textarea id="localChatInput" placeholder="Message the bot… (Enter to send, Shift+Enter for newline)" rows="1"></textarea>
-        <button class="btn btn-primary" id="localChatSend">Send</button>
-      </div>
-    </div>
 
-    <!-- -- Activity log ----------------------------------------- -->
-    <div class="card">
-      <div class="card-header">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-        </svg>
-        <h2>Activity Log</h2>
-        <button class="btn btn-ghost" id="clearBtn" style="margin-left:auto;padding:4px 12px;font-size:0.8125rem;">Clear</button>
+      <div class="chat-input-row">
+        <textarea id="chatInput" placeholder="Message the bot… (Enter to send, Shift+Enter for newline)" rows="1"></textarea>
+        <button class="btn btn-primary" id="chatSend">Send</button>
       </div>
-      <div class="log-container" id="logContainer">
-        <div class="log-empty" id="logEmpty">
-          No activity yet. Configure the settings above, then click Connect.
-        </div>
-      </div>
-    </div>
+    </div><!-- /chatPanel -->
 
-  </div>
-
-  <footer class="site-footer">
-    &copy; Runbook AI &mdash; open source &amp; community driven. &nbsp;&middot;&nbsp;
-    <a href="/about/privacy-policy.html">Privacy Policy</a> &middot;
-    <a href="/about/terms-of-service.html">Terms of Service</a>
-  </footer>
+  </div><!-- /app-shell -->
 
   <script type="module" src="js/app.js"></script>
 

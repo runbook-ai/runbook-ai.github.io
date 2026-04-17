@@ -57,8 +57,20 @@ document.getElementById('settingsToggle').addEventListener('click', () => {
 // -- Log controls --------------------------------------------------------------
 
 document.getElementById('clearBtn').addEventListener('click', () => {
-  document.getElementById('logContainer').innerHTML =
-    '<div class="log-empty" id="logEmpty">No activity yet. Configure the settings above, then click Connect.</div>';
+  const feed = document.getElementById('chatFeed');
+  if (feed) feed.innerHTML = '<div class="log-empty" id="chatEmpty">No activity yet.</div>';
+});
+
+// -- Settings panel toggle -----------------------------------------------------
+
+document.getElementById('settingsPanelBtn')?.addEventListener('click', () => {
+  const settingsPanel = document.getElementById('settingsPanel');
+  const chatPanel     = document.getElementById('chatPanel');
+  const btn           = document.getElementById('settingsPanelBtn');
+  const isOpen = !settingsPanel.classList.contains('hidden');
+  settingsPanel.classList.toggle('hidden', isOpen);
+  chatPanel.classList.toggle('hidden', !isOpen);
+  btn.classList.toggle('active', !isOpen);
 });
 
 // -- Connect / Disconnect button -----------------------------------------------
