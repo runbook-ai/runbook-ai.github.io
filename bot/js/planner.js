@@ -130,13 +130,13 @@ const PLANNER_TOOLS = [
     type: 'function',
     function: {
       name: 'browse',
-      description: 'Navigate to a URL and perform a browser task. Use for anything requiring page interaction — searching websites, reading pages, filling forms, clicking buttons.',
+      description: 'Navigate to a URL and perform a ONE-SHOT browser task. Use for page interaction — searching websites, reading pages, filling forms, clicking buttons. This tool cannot poll, wait, or repeat. For recurring observation, use create_monitor or set_schedule instead.',
       parameters: {
         type: 'object',
         properties: {
           prompt: {
             type: 'string',
-            description: 'Detailed instruction for what to do in the browser. Be specific about the URL and actions.',
+            description: 'Detailed one-shot instruction for what to do in the browser RIGHT NOW. Be specific about the URL and actions. Do NOT include scheduling or polling directives ("every X seconds", "monitor", "watch for changes", "keep checking", "on new X") — browse executes once and returns. Scheduling belongs in create_monitor or set_schedule.',
           },
         },
         required: ['prompt'],
@@ -215,7 +215,7 @@ const PLANNER_TOOLS = [
           },
           instruction: {
             type: 'string',
-            description: 'What to do when new content is detected. This is the instruction the monitor will run each time changes are found. Use natural language: e.g. "Summarize the new messages and draft a reply".',
+            description: 'What to DO when new content is detected. The polling cadence is handled by intervalMs — do NOT include phrases like "every X seconds", "monitor", "poll", or "keep checking" in this field. Describe only the reactive action. Good: "Summarize new messages and draft a reply". Bad: "Every 10s, monitor Gmail and summarize".',
           },
           label: {
             type: 'string',
@@ -390,10 +390,10 @@ const PLANNER_TOOLS = [
 const DEFAULT_SOUL = `You are Runbook AI, a bot that helps users automate tasks through a real browser. You can navigate websites, read pages, fill forms, scrape data, and monitor sites on a schedule.`;
 
 const DEFAULT_AGENTS = `You have access to:
-- **browse**: Execute a task in a real browser (navigate, read pages, fill forms, click). Each browse call is independent — include all necessary context in the prompt. Each call has a limited execution budget (~30 browser actions) — keep prompts focused on a single objective. The result may include a \`browserFindings\` array — review these and include any worth keeping in your \`learnings\`.
+- **browse**: Execute a ONE-SHOT task in a real browser (navigate, read pages, fill forms, click). Each browse call is independent and synchronous — include all context needed for THIS single action in the prompt. Each call has a limited execution budget (~30 browser actions). NEVER put scheduling directives into a browse prompt — browse cannot poll, wait, or repeat. Phrases like "every 10 seconds", "monitor", "watch for changes", "keep checking", or "on new emails" DO NOT belong in a browse prompt and will be ignored (or cause the browser to waste its budget re-reading). Route any such request through \`create_monitor\` or \`set_schedule\` instead. The result may include a \`browserFindings\` array — review these and include any worth keeping in your \`learnings\`.
 - **spawn_task**: Spawn a child task (one-shot or recurring). Child tasks run independently and do NOT message the user — only you (the parent) communicate with the user. You will see child task statuses automatically on subsequent runs via CHILD TASK STATUSES context.
 - **set_schedule**: Make the CURRENT task recurring so it re-runs on an interval. Use this when the task itself needs to repeat (e.g. "check twice a day"). The task will keep running until maxRuns is reached or you call done with stopReached=true.
-- **create_monitor**: Create a watch on the CURRENT tab that polls for changes and runs an instruction when new content is detected. The monitor runs independently with its own conversation context. Use for watching email, Slack, or notifications (e.g. "watch Gmail for new emails and summarize them").
+- **create_monitor**: Create a watch on the CURRENT tab that polls for DOM changes and runs an instruction when new content is detected. Use this — NOT browse, NOT set_schedule — any time the user asks to watch/monitor a page for changes (e.g. "monitor Gmail every 10s for new emails", "watch Slack #alerts and summarize new messages", "notify me when this PR status changes"). The monitor handles polling internally; you only need to (a) navigate to the page via ONE browse call, then (b) call create_monitor with intervalMs (the poll interval) and instruction (what to do when a change is detected). The instruction must describe the ACTION on change — do NOT include polling words like "every X seconds" or "monitor" or "keep checking" in the instruction, those are implicit. Example: instruction = "Summarize new emails from the last tick and draft replies", NOT "monitor every 10s and summarize".
 - **cancel_task**: Cancel a child task and all its descendants. Use when a child is no longer needed (e.g. user changed direction).
 - **read_file / write_file / append_file / list_files / delete_file / file_info / grep_files**: Persistent file storage. Use to save reports, CSVs, data, images, etc. that persist across task runs. Use append_file for logs and CSVs where you add rows over time. Files are synced to GitHub.
 - **done**: Finish the plan with a summary. Always populate these fields when relevant:
