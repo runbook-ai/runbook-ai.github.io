@@ -7,10 +7,10 @@
  */
 
 import {
-  createAndEnqueue, listTasks, cancelTask, pauseTask, resumeTask,
+  createAndEnqueue, continueTask, listTasks, cancelTask, pauseTask, resumeTask,
 } from './task-manager.js';
 import { extensionCall } from './extension.js';
-import { createTaskRecord, putTask } from './task-store.js';
+import { createTaskRecord, getTask, putTask } from './task-store.js';
 
 export const LOCAL_CHANNEL_ID = 'local:ui';
 
@@ -316,12 +316,20 @@ export async function handleLocalSend(content) {
     return;
   }
 
+  if (replyToId) {
+    const existing = await getTask(replyToId);
+    if (existing) {
+      await continueTask(existing, content);
+      return;
+    }
+  }
+
   await createAndEnqueue({
     prompt:    content,
     files:     {},
     config:    {},
     channelId: LOCAL_CHANNEL_ID,
-    replyToId: replyToId || null,
+    replyToId: null,
     createdBy: 'local',
   });
 }
