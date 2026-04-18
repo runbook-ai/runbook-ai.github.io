@@ -161,22 +161,23 @@ export async function runMonitorPoll(task) {
 
   if (!prev) {
     // First poll — establish baseline, no trigger
-    prevDomStore.set(task.id, { dom: snap.dom, seeded: false });
+    prevDomStore.set(task.id, { dom: snap.dom, polls: 1 });
     return [];
   }
+
+  const polls = (prev.polls ?? 1) + 1;
 
   // Structural diff
   const changed = diff(snap.dom, prev.dom);
 
-  // Update baseline every poll so the diff is always against the most recent state
-  prevDomStore.set(task.id, { dom: snap.dom, seeded: prev.seeded || !!changed });
+  // Always update baseline to the most recent snapshot.
+  prevDomStore.set(task.id, { dom: snap.dom, polls });
 
   if (!changed) return [];
 
-  // Skip the first detected change after baseline — the page is usually still
-  // settling (async content load, layout shifts). We use this run as a second
-  // baseline and only fire on the next genuine change.
-  if (!prev.seeded) return [];
+  // Warm-up: the first couple of polls absorb async-loaded content and other
+  // settling noise. Real changes fire from poll 3 onward.
+  if (polls <= 2) return [];
 
   // Semantic extraction
   return extractSemanticEvents(changed, { url: snap.url });
