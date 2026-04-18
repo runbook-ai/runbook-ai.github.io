@@ -642,59 +642,6 @@
     .agent-dot--waiting  { background: #9ca3af; }
     .agent-dot--paused   { background: #d1d5db; }
 
-    /* -- Add-watch form ---------------------------------------- */
-    .add-watch-form {
-      padding: 16px 20px;
-      border-top: 2px solid #e5e7eb;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      background: #f9fafb;
-    }
-    .add-watch-title {
-      font-size: 0.875rem;
-      font-weight: 600;
-      color: #374151;
-    }
-    .add-watch-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-    @media (max-width: 560px) { .add-watch-grid { grid-template-columns: 1fr; } }
-    .add-watch-full { grid-column: 1 / -1; }
-    .add-watch-form .field label {
-      display: block;
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: #6b7280;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-bottom: 4px;
-    }
-    .add-watch-form .field input,
-    .add-watch-form .field select,
-    .add-watch-form .field textarea {
-      width: 100%;
-      padding: 7px 10px;
-      border: 1px solid #d1d5db;
-      border-radius: 7px;
-      font-family: inherit;
-      font-size: 0.875rem;
-      color: #374151;
-      background: #fff;
-      outline: none;
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
-    .add-watch-form .field input:focus,
-    .add-watch-form .field select:focus,
-    .add-watch-form .field textarea:focus {
-      border-color: #6366f1;
-      box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
-    }
-    .add-watch-form .field textarea { resize: vertical; height: 80px; line-height: 1.5; }
-    .add-watch-actions { display: flex; align-items: center; gap: 10px; }
-
     /* -- Settings footer --------------------------------------- */
     .settings-footer {
       text-align: center;
@@ -901,9 +848,8 @@
           <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
         </svg>
         <h2>Agents &amp; Watches</h2>
-        <button class="btn btn-primary" id="addWatchBtn" style="margin-left:auto;padding:5px 14px;font-size:0.8125rem;">+ Add Watch</button>
       </div>
-      <!-- .agent-list and .add-watch-form injected by monitor-ui.js -->
+      <!-- .agent-list injected by monitor-ui.js -->
     </div><!-- /monitorPanel -->
 
     <!-- -- Chat panel (shown by default) ----------------------- -->

@@ -16,6 +16,12 @@ export const LOCAL_CHANNEL_ID = 'local:ui';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// Strip inline-code backticks and quotes that users often paste in along with
+// task ids copied from !tasks output (where ids are rendered as `xxxxx`).
+function normalizeId(raw) {
+  return (raw ?? '').trim().replace(/^[`'"]+|[`'"]+$/g, '');
+}
+
 function parseInterval(str) {
   const m = str.match(/^(\d+(?:\.\d+)?)\s*(s|m|h|d)$/i);
   if (!m) return null;
@@ -237,9 +243,10 @@ async function handleLocalCommand(content) {
 
   const cancelMatch = content.match(/^!cancel\s+(\S+)\s*$/i);
   if (cancelMatch) {
-    const task = await cancelTask(cancelMatch[1]);
+    const id = normalizeId(cancelMatch[1]);
+    const task = await cancelTask(id);
     appendMessage(
-      task ? `Cancelled task ${cancelMatch[1]}.` : `Task ${cancelMatch[1]} not found.`,
+      task ? `Cancelled task ${id}.` : `Task ${id} not found.`,
       'bot',
     );
     return;
@@ -247,11 +254,12 @@ async function handleLocalCommand(content) {
 
   const pauseMatch = content.match(/^!pause\s+(\S+)\s*$/i);
   if (pauseMatch) {
-    const task = await pauseTask(pauseMatch[1]);
+    const id = normalizeId(pauseMatch[1]);
+    const task = await pauseTask(id);
     appendMessage(
       task
-        ? `Paused task ${pauseMatch[1]}. Use !resume ${pauseMatch[1]} to continue.`
-        : `Task ${pauseMatch[1]} not found or is not a scheduled task.`,
+        ? `Paused task ${id}. Use !resume ${id} to continue.`
+        : `Task ${id} not found or is not a scheduled task.`,
       'bot',
     );
     return;
@@ -259,11 +267,12 @@ async function handleLocalCommand(content) {
 
   const resumeMatch = content.match(/^!resume\s+(\S+)\s*$/i);
   if (resumeMatch) {
-    const task = await resumeTask(resumeMatch[1]);
+    const id = normalizeId(resumeMatch[1]);
+    const task = await resumeTask(id);
     appendMessage(
       task
-        ? `Resumed task ${resumeMatch[1]}. Next run scheduled.`
-        : `Task ${resumeMatch[1]} not found or is not paused.`,
+        ? `Resumed task ${id}. Next run scheduled.`
+        : `Task ${id} not found or is not paused.`,
       'bot',
     );
     return;

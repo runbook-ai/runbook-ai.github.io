@@ -500,9 +500,18 @@ async function runMonitorTask(task) {
       // Capture instruction before mutating task.prompt
       const instruction = task.config.instruction ?? task.prompt;
       const eventTexts  = events.map(e => e.text).join('\n\n');
-      const url         = events[0]?.source ?? '';
+      const url         = events[0]?.source ?? task.config.tabUrl ?? '';
       if (!task.config.instruction) task.config.instruction = instruction; // backfill for restore
-      task.prompt = `${instruction}\n\n---\n\nNew content detected${url ? ' on ' + url : ''}:\n\n${eventTexts}`;
+      task.prompt =
+        `${instruction}\n\n---\n\n` +
+        `The watched page${url ? ' (' + url + ')' : ''} changed. ` +
+        `Below are text fragments from the DOM diff — they are HINTS that something changed, ` +
+        `but the diff may include noise (timestamps, layout shifts) or miss the actual new content ` +
+        `on dynamic pages. To answer the user's instruction accurately, browse the page ` +
+        `${url ? '(' + url + ')' : ''} fresh and compare against your prior observations in this ` +
+        `conversation history. Only report changes that are material to the instruction; if the ` +
+        `diff looks like noise only, call done with silent=true.\n\n` +
+        `Diff hints:\n${eventTexts}`;
 
       // Inject event history into context so planner has full conversation thread
       if (!task.context) task.context = {};

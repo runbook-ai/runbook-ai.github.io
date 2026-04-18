@@ -12,7 +12,13 @@ import {
 } from './task-manager.js';
 import { triage } from './triage.js';
 
-// ── Interval parsing ────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+// Strip inline-code backticks and quotes from ids pasted back from !tasks
+// output, where ids are rendered as `xxxxx`.
+function normalizeId(raw) {
+  return (raw ?? '').trim().replace(/^[`'"]+|[`'"]+$/g, '');
+}
 
 /** Parse a human-friendly interval like "2h", "30m", "1d" into milliseconds. */
 function parseInterval(str) {
@@ -353,19 +359,19 @@ async function handleDM(msg, botUserId, s) {
 
   const cancelMatch = content.match(/^!cancel\s+(\S+)\s*$/i);
   if (cancelMatch) {
-    await handleCancelCommand(channelId, msg.id, cancelMatch[1], s);
+    await handleCancelCommand(channelId, msg.id, normalizeId(cancelMatch[1]), s);
     return;
   }
 
   const pauseMatch = content.match(/^!pause\s+(\S+)\s*$/i);
   if (pauseMatch) {
-    await handlePauseCommand(channelId, msg.id, pauseMatch[1], s);
+    await handlePauseCommand(channelId, msg.id, normalizeId(pauseMatch[1]), s);
     return;
   }
 
   const resumeMatch = content.match(/^!resume\s+(\S+)\s*$/i);
   if (resumeMatch) {
-    await handleResumeCommand(channelId, msg.id, resumeMatch[1], s);
+    await handleResumeCommand(channelId, msg.id, normalizeId(resumeMatch[1]), s);
     return;
   }
 
@@ -560,19 +566,19 @@ async function handleGroupCommand(msg, channelId, body, s) {
 
   const cancelMatch = body.match(/^!cancel\s+(\S+)\s*$/i);
   if (cancelMatch) {
-    await handleCancelCommand(channelId, msg.id, cancelMatch[1], s);
+    await handleCancelCommand(channelId, msg.id, normalizeId(cancelMatch[1]), s);
     return;
   }
 
   const pauseMatch = body.match(/^!pause\s+(\S+)\s*$/i);
   if (pauseMatch) {
-    await handlePauseCommand(channelId, msg.id, pauseMatch[1], s);
+    await handlePauseCommand(channelId, msg.id, normalizeId(pauseMatch[1]), s);
     return;
   }
 
   const resumeMatch = body.match(/^!resume\s+(\S+)\s*$/i);
   if (resumeMatch) {
-    await handleResumeCommand(channelId, msg.id, resumeMatch[1], s);
+    await handleResumeCommand(channelId, msg.id, normalizeId(resumeMatch[1]), s);
     return;
   }
 
