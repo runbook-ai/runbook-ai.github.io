@@ -592,8 +592,7 @@ export async function runPlan(task) {
             browseCount++;
             console.log('[planner] browse:', args.prompt.slice(0, 100));
             try {
-              const browsePrompt = args.prompt + '\n\nWhen done, close any browser tabs you opened that are no longer needed.';
-              const browseResult = await act(browsePrompt, collectedFiles);
+              const browseResult = await act(args.prompt, collectedFiles);
               toolResult = { success: true, result: browseResult.text };
               // Collect any files downloaded during this browse step
               if (browseResult.files && Object.keys(browseResult.files).length > 0) {
