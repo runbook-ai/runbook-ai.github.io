@@ -18,8 +18,23 @@ function hashString(str) {
   return Math.abs(hash).toString(16).padStart(8, '0').substring(0, 8);
 }
 
-// ── DOM diff (sync, adapted from extension/dom.js) ───────────────────────────
-// calculateHash is made synchronous — no crypto API, pure djb2.
+// ── DOM diff ─────────────────────────────────────────────────────────────────
+// Purely content-addressed: a node's hash folds in its tag/title/value and the
+// recursive hashes of its children. Two nodes anywhere in the tree with the
+// same content have the same hash. We track the set of hashes present in the
+// previous snapshot; any current node whose hash is in that set is considered
+// already-seen and dropped from the diff — regardless of where it sits now.
+//
+// This makes the diff robust to reorderings, virtualized-list re-renders, and
+// DOM-index reshuffling (e.g., Gmail rebuilding its inbox rows when a new
+// email arrives no longer looks like "every row is new").
+//
+// Limitations:
+// - Attribute-only changes (class, aria-*, data-*) aren't in the hash, so they
+//   won't surface in the diff. Same behavior as before.
+// - Duplicate content collapses to one hash — if a page has two identical
+//   elements and a third appears, we won't detect the addition. Acceptable for
+//   change-detection; not acceptable for precise structural diffing.
 
 function diff(currentDom, previousDom) {
   if (!previousDom) return currentDom;
@@ -39,29 +54,15 @@ function diff(currentDom, previousDom) {
     return node.hash;
   }
 
-  function getNodeKey(node, ancestorKey) {
-    if (!node) return null;
-    if (node.index !== undefined && node.frameIndex !== undefined) {
-      return `${node.index}:${node.frameIndex}`;
-    }
-    if (node.hash !== undefined) return `${ancestorKey}_${node.hash}`;
-    return null;
-  }
-
   calculateHash(currentDom);
   calculateHash(previousDom);
 
-  function buildKeyMap(node, map = new Map(), ancestorKey = 'root') {
-    if (!node) return map;
-    const key = getNodeKey(node, ancestorKey);
-    if (key) map.set(key, node);
-    const childAncestorKey = (node.index !== undefined && node.frameIndex !== undefined)
-      ? `${node.index}:${node.frameIndex}` : ancestorKey;
-    for (const child of (node.children ?? [])) buildKeyMap(child, map, childAncestorKey);
-    return map;
-  }
-
-  const previousMap = buildKeyMap(previousDom);
+  const previousHashes = new Set();
+  (function walk(node) {
+    if (!node) return;
+    if (node.hash !== undefined) previousHashes.add(node.hash);
+    for (const child of (node.children ?? [])) walk(child);
+  })(previousDom);
 
   function cloneNode(node) {
     if (!node) return null;
@@ -71,18 +72,17 @@ function diff(currentDom, previousDom) {
     return c;
   }
 
-  function buildAddedTree(node, ancestorKey = 'root') {
+  function buildAddedTree(node) {
     if (!node) return null;
-    const key = getNodeKey(node, ancestorKey);
-    if (!key) return null;
-    const prev = previousMap.get(key);
-    if (!prev) return cloneNode(node);           // entirely new subtree
-    if (prev.hash === node.hash) return null;    // unchanged
-    // Changed node — recurse into children to find what's new
-    const childAncestorKey = (node.index !== undefined && node.frameIndex !== undefined)
-      ? `${node.index}:${node.frameIndex}` : ancestorKey;
+    // Content we've already seen anywhere in prev — not new.
+    if (node.hash !== undefined && previousHashes.has(node.hash)) return null;
+    // Leaf text with a new hash — emit it.
+    if (node.text !== undefined) return cloneNode(node);
+    // Element with at least some new content inside — keep walking.
+    // (A parent's hash changing doesn't mean every child is new; most children
+    // may still match content-wise.)
     const addedChildren = (node.children ?? [])
-      .map(child => buildAddedTree(child, childAncestorKey))
+      .map(buildAddedTree)
       .filter(Boolean);
     if (addedChildren.length === 0) return null;
     return { ...node, children: addedChildren };

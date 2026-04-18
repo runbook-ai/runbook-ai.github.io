@@ -504,14 +504,14 @@ async function runMonitorTask(task) {
       if (!task.config.instruction) task.config.instruction = instruction; // backfill for restore
       task.prompt =
         `${instruction}\n\n---\n\n` +
-        `The watched page${url ? ' (' + url + ')' : ''} changed. ` +
-        `Below are text fragments from the DOM diff — they are HINTS that something changed, ` +
-        `but the diff may include noise (timestamps, layout shifts) or miss the actual new content ` +
-        `on dynamic pages. To answer the user's instruction accurately, browse the page ` +
-        `${url ? '(' + url + ')' : ''} fresh and compare against your prior observations in this ` +
-        `conversation history. Only report changes that are material to the instruction; if the ` +
-        `diff looks like noise only, call done with silent=true.\n\n` +
-        `Diff hints:\n${eventTexts}`;
+        `The watched page${url ? ' (' + url + ')' : ''} changed. The new content below was ` +
+        `captured by a content-hash DOM diff — each fragment is text that was not present in the ` +
+        `prior snapshot of this page. Prefer to answer the user's instruction directly from these ` +
+        `fragments without calling browse — they are usually sufficient for summarization, ` +
+        `notification, and similar tasks. Only call browse if the instruction genuinely needs ` +
+        `information that isn't in the fragments (e.g., opening a full email body, following a ` +
+        `link). If the new content isn't material to the instruction, call done with silent=true.\n\n` +
+        `New content:\n${eventTexts}`;
 
       // Inject event history into context so planner has full conversation thread
       if (!task.context) task.context = {};
