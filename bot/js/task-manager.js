@@ -17,6 +17,7 @@ import { computeNextRun, computeBackoff } from './cron.js';
 import { showProcessing, hideProcessing } from './ui.js';
 import { runPlan, UserCancelledError } from './planner.js';
 import { appendDailyMemory } from './memory-store.js';
+import { runMonitorPoll } from './monitor.js';
 
 // ── Delivery callback ──────────────────────────────────────────────────────
 
@@ -368,6 +369,28 @@ export async function continueTask(task, newPrompt, { files, replyToId } = {}) {
     await putTask(task);
     return task;
   }
+  if (task.type === 'monitor') {
+    // Monitors are driven by the monitor tick, not the main queue. Update the
+    // instruction in place and keep status='waiting' so the next tick picks it up.
+    if (!task.config) task.config = {};
+    task.config.instruction = newPrompt;
+    task.prompt = newPrompt;
+    if (replyToId) {
+      if (!task.context) task.context = {};
+      task.context.__lastReplyToId = replyToId;
+    }
+    if (files && Object.keys(files).length > 0) {
+      task.files = { ...(task.files || {}), ...files };
+    }
+    if (task.status === 'failed' || task.status === 'completed') {
+      task.status = 'waiting';
+      task.consecutiveErrors = 0;
+      task.lastError = null;
+    }
+    task.nextRunAt = new Date().toISOString();
+    await putTask(task);
+    return task;
+  }
   // Append current prompt+result as history before adding new input
   if (!task.context) task.context = {};
   if (!task.context.history) task.context.history = [];
@@ -432,6 +455,13 @@ export async function rehydrate() {
   const queued  = await getTasksByStatus('queued');
   const stuck   = await getTasksByStatus('running');
   for (const task of [...stuck, ...queued]) {
+    if (task.type === 'monitor') {
+      // Reset monitor tasks to waiting so the monitor tick picks them up
+      task.status    = 'waiting';
+      task.nextRunAt = new Date().toISOString();
+      await putTask(task, { skipSync: true });
+      continue;
+    }
     task.status = 'queued';
     await putTask(task);
     if (!readyQueue.includes(task.id)) {
@@ -439,4 +469,130 @@ export async function rehydrate() {
     }
   }
   if (readyQueue.length > 0 && !running) drainQueue();
+}
+
+// ── Monitor tick ──────────────────────────────────────────────────────────────
+
+const MONITOR_TICK_MS = 2_000;
+let monitorTickTimer  = null;
+
+/** Execute one monitor poll and run the planner inline if new content is detected. */
+async function runMonitorTask(task) {
+  task.status    = 'running';
+  task.lastRunAt = new Date().toISOString();
+  task.runCount += 1;
+  await putTask(task, { skipSync: true });
+
+  try {
+    const events = await runMonitorPoll(task);
+
+    if (events.length > 0) {
+      if (!task.config) task.config = {};
+
+      // Append to message history (bounded to 100 entries)
+      if (!Array.isArray(task.config.messageHistory)) task.config.messageHistory = [];
+      task.config.messageHistory.push({ at: new Date().toISOString(), events });
+      if (task.config.messageHistory.length > 100) {
+        task.config.messageHistory = task.config.messageHistory.slice(-100);
+      }
+
+      // Build prompt: user instruction first, then detected content below
+      // Capture instruction before mutating task.prompt
+      const instruction = task.config.instruction ?? task.prompt;
+      const eventTexts  = events.map(e => e.text).join('\n\n');
+      const url         = events[0]?.source ?? '';
+      if (!task.config.instruction) task.config.instruction = instruction; // backfill for restore
+      task.prompt = `${instruction}\n\n---\n\nNew content detected${url ? ' on ' + url : ''}:\n\n${eventTexts}`;
+
+      // Inject event history into context so planner has full conversation thread
+      if (!task.context) task.context = {};
+      task.context.__monitorEvents = task.config.messageHistory.slice(-10);
+
+      // Run planner inline — same task, same context, no child spawning
+      if (task.channelId) {
+        showProcessing(task.channelId);
+        if (typingFn) typingFn(task);
+      }
+      const planResult = await runPlan(task);
+
+      // Persist result and update conversation history
+      task.result = planResult.result || '';
+      if (planResult.memory && typeof planResult.memory === 'object') {
+        const preserved = {};
+        for (const [k, v] of Object.entries(task.context)) {
+          if (k === 'history' || k.startsWith('__')) preserved[k] = v;
+        }
+        task.context = { ...preserved, ...planResult.memory };
+      }
+      if (planResult.runSummary) task.context.__runSummary = planResult.runSummary;
+      if (planResult.trajectory) task.context.__trajectory = planResult.trajectory;
+
+      // Save exchange to history so next run has full context
+      if (!task.context.history) task.context.history = [];
+      task.context.history.push({ role: 'user',      content: task.prompt });
+      task.context.history.push({ role: 'assistant', content: task.result });
+
+      // Restore original prompt (instruction) for display
+      task.prompt = task.config.instruction ?? task.prompt;
+
+      task.consecutiveErrors = 0;
+      task.lastError = null;
+
+      if (task.result && task.channelId && !planResult.silent) {
+        await deliver(task, task.result);
+      }
+    }
+  } catch (err) {
+    console.error('[task-manager] runMonitorTask error:', task.id, err);
+    const errorMsg = err?.message ?? String(err);
+
+    // Fail immediately if tab is gone — no point retrying
+    if (errorMsg.includes('no longer available')) {
+      task.status    = 'failed';
+      task.nextRunAt = null;
+      task.lastError = errorMsg;
+      await putTask(task, { skipSync: true });
+      return;
+    }
+
+    // For other errors, retry with backoff
+    task.consecutiveErrors = (task.consecutiveErrors ?? 0) + 1;
+    task.lastError = errorMsg;
+  } finally {
+    hideProcessing();
+  }
+
+  // Return to waiting with next scheduled run (unless already failed above)
+  if (task.status === 'failed') return;
+
+  const intervalMs = task.schedule?.intervalMs ?? 60_000;
+  task.status      = 'waiting';
+  task.nextRunAt   = new Date(Date.now() + intervalMs).toISOString();
+  await putTask(task, { skipSync: true });
+}
+
+/** Monitor tick: runs every 2 s, fires due monitor tasks in parallel outside the serial queue. */
+async function monitorTick() {
+  try {
+    const waiting = await getTasksByStatus('waiting');
+    const now     = Date.now();
+    const due     = waiting.filter(t =>
+      t.type === 'monitor' &&
+      t.nextRunAt &&
+      new Date(t.nextRunAt).getTime() <= now
+    );
+    if (due.length > 0) {
+      await Promise.allSettled(due.map(t => runMonitorTask(t)));
+    }
+  } catch (err) {
+    console.error('[task-manager] monitorTick error:', err);
+  }
+}
+
+/** Start the monitor scheduler. Call from app.js after rehydrate(). */
+export function startMonitorTick() {
+  if (monitorTickTimer) return;
+  monitorTick(); // immediate first check
+  monitorTickTimer = setInterval(monitorTick, MONITOR_TICK_MS);
+  console.log('[task-manager] monitor tick started');
 }

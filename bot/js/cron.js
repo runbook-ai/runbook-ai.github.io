@@ -50,7 +50,8 @@ async function tick() {
   try {
     const due = await getDueTasks();
     for (const task of due) {
-      if (onTaskDue) onTaskDue(task);
+      // Monitor tasks are handled by the monitor tick in task-manager, not cron
+      if (onTaskDue && task.type !== 'monitor') onTaskDue(task);
     }
   } catch (err) {
     console.error('[cron] tick error:', err);

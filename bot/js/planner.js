@@ -9,7 +9,7 @@
 
 import { loadSettings } from './settings.js';
 import { createAndEnqueue, cancelTask } from './task-manager.js';
-import { putTask } from './task-store.js';
+import { createTaskRecord, putTask } from './task-store.js';
 import { buildWorkspaceContext } from './memory-store.js';
 import { readFile, writeFile, appendFile, listFiles, deleteFile, fileInfo, grepFiles } from './file-store.js';
 import { extensionCall } from './extension.js';
@@ -204,6 +204,31 @@ const PLANNER_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'create_monitor',
+      description: 'Create a monitor task that watches the CURRENT tab for changes and runs an instruction when new content is detected. The monitor runs independently and maintains its own conversation context. Use this for watching pages like email, Slack, or notifications.',
+      parameters: {
+        type: 'object',
+        properties: {
+          intervalMs: {
+            type: 'number',
+            description: 'How often to poll the tab in milliseconds (e.g. 60000 for 1 minute, 300000 for 5 minutes). Minimum 5000 (5 seconds).',
+          },
+          instruction: {
+            type: 'string',
+            description: 'What to do when new content is detected. This is the instruction the monitor will run each time changes are found. Use natural language: e.g. "Summarize the new messages and draft a reply".',
+          },
+          label: {
+            type: 'string',
+            description: 'A short label for this monitor (e.g. "Gmail inbox", "Slack #alerts"). Required for identifying the watch.',
+          },
+        },
+        required: ['intervalMs', 'instruction', 'label'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'cancel_task',
       description: 'Cancel a child task and all its descendants. Use when a child task is no longer needed (e.g. user changed direction, task is obsolete). See CHILD TASK STATUSES for available task IDs.',
       parameters: {
@@ -368,6 +393,7 @@ const DEFAULT_AGENTS = `You have access to:
 - **browse**: Execute a task in a real browser (navigate, read pages, fill forms, click). Each browse call is independent — include all necessary context in the prompt. Each call has a limited execution budget (~30 browser actions) — keep prompts focused on a single objective. The result may include a \`browserFindings\` array — review these and include any worth keeping in your \`learnings\`.
 - **spawn_task**: Spawn a child task (one-shot or recurring). Child tasks run independently and do NOT message the user — only you (the parent) communicate with the user. You will see child task statuses automatically on subsequent runs via CHILD TASK STATUSES context.
 - **set_schedule**: Make the CURRENT task recurring so it re-runs on an interval. Use this when the task itself needs to repeat (e.g. "check twice a day"). The task will keep running until maxRuns is reached or you call done with stopReached=true.
+- **create_monitor**: Create a watch on the CURRENT tab that polls for changes and runs an instruction when new content is detected. The monitor runs independently with its own conversation context. Use for watching email, Slack, or notifications (e.g. "watch Gmail for new emails and summarize them").
 - **cancel_task**: Cancel a child task and all its descendants. Use when a child is no longer needed (e.g. user changed direction).
 - **read_file / write_file / append_file / list_files / delete_file / file_info / grep_files**: Persistent file storage. Use to save reports, CSVs, data, images, etc. that persist across task runs. Use append_file for logs and CSVs where you add rows over time. Files are synced to GitHub.
 - **done**: Finish the plan with a summary. Always populate these fields when relevant:
@@ -622,6 +648,50 @@ export async function runPlan(task) {
             }
             await putTask(task);
             toolResult = { scheduled: true, intervalMs: args.intervalMs, maxRuns };
+            break;
+          }
+
+          case 'create_monitor': {
+            const intervalMs = Math.max(5000, args.intervalMs || 60000);
+            const instruction = args.instruction || '';
+            const label = args.label || 'Monitor';
+            console.log('[planner] create_monitor:', label, 'every', intervalMs, 'ms');
+
+            // Get current tab from taskState (last entry is current)
+            let currentTab = null;
+            try {
+              const state = await extensionCall('getTaskState', {});
+              const tabs = state.tabs || [];
+              if (tabs.length > 0) {
+                currentTab = tabs[tabs.length - 1];
+              }
+            } catch (err) {
+              console.warn('[planner] create_monitor: getTaskState failed:', err.message);
+            }
+
+            if (!currentTab) {
+              toolResult = { error: 'No active tab found. Navigate to the page you want to monitor first.' };
+              break;
+            }
+
+            const monitor = createTaskRecord({
+              type:      'monitor',
+              label,
+              prompt:    `Monitor: ${label}`,
+              status:    'waiting',
+              nextRunAt: new Date().toISOString(),
+              schedule:  { type: 'every', intervalMs },
+              channelId: task.channelId,
+              createdBy: task.createdBy,
+              config: {
+                tabId:       currentTab.tabId,
+                tabUrl:      currentTab.url,
+                instruction,
+              },
+            });
+
+            await putTask(monitor);
+            toolResult = { monitoring: true, taskId: monitor.id, label, intervalMs, tabId: currentTab.tabId };
             break;
           }
 

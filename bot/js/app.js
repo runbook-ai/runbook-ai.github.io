@@ -1,12 +1,13 @@
 import { loadSettings, saveSettings, getGitHubSync, saveGitHubSync } from './settings.js';
 import { gwConnect, gwDisconnect, gw } from './gateway.js';
 import { startCron } from './cron.js';
-import { enqueueTask, rehydrate, setDeliveryHandler, setTypingHandler } from './task-manager.js';
+import { enqueueTask, rehydrate, setDeliveryHandler, setTypingHandler, startMonitorTick } from './task-manager.js';
 import { sendDiscordMessage, triggerTyping } from './discord.js';
 import { logMessage } from './ui.js';
 import { loadWorkspaceFile, saveWorkspaceFile, getDailyMemories, clearDailyMemories } from './memory-store.js';
 import { DEFAULT_SOUL, DEFAULT_AGENTS } from './planner.js';
 import { LOCAL_CHANNEL_ID, deliverToLocalUI, showLocalTyping } from './local-ui.js';
+import { startMonitorUI } from './monitor-ui.js';
 
 // -- Settings form -------------------------------------------------------------
 
@@ -63,14 +64,23 @@ document.getElementById('clearBtn').addEventListener('click', () => {
 
 // -- Settings panel toggle -----------------------------------------------------
 
+// 3-way panel switcher: chat ↔ monitor ↔ settings
+function showPanel(name) {
+  document.getElementById('chatPanel').classList.toggle('hidden',     name !== 'chat');
+  document.getElementById('monitorPanel').classList.toggle('hidden',  name !== 'monitor');
+  document.getElementById('settingsPanel').classList.toggle('hidden', name !== 'settings');
+  document.getElementById('settingsPanelBtn').classList.toggle('active', name === 'settings');
+  document.getElementById('monitorPanelBtn')?.classList.toggle('active',  name === 'monitor');
+}
+
 document.getElementById('settingsPanelBtn')?.addEventListener('click', () => {
-  const settingsPanel = document.getElementById('settingsPanel');
-  const chatPanel     = document.getElementById('chatPanel');
-  const btn           = document.getElementById('settingsPanelBtn');
-  const isOpen = !settingsPanel.classList.contains('hidden');
-  settingsPanel.classList.toggle('hidden', isOpen);
-  chatPanel.classList.toggle('hidden', !isOpen);
-  btn.classList.toggle('active', !isOpen);
+  const isOpen = !document.getElementById('settingsPanel').classList.contains('hidden');
+  showPanel(isOpen ? 'chat' : 'settings');
+});
+
+document.getElementById('monitorPanelBtn')?.addEventListener('click', () => {
+  const isOpen = !document.getElementById('monitorPanel').classList.contains('hidden');
+  showPanel(isOpen ? 'chat' : 'monitor');
 });
 
 // -- Connect / Disconnect button -----------------------------------------------
@@ -135,6 +145,13 @@ rehydrate().then(() => {
 }).catch(err => {
   console.error('[app] task rehydration failed:', err);
 });
+
+// Start monitor scheduler (runs parallel to serial agent queue)
+startMonitorTick();
+
+// Start monitor panel UI
+const monitorContainer = document.getElementById('monitorPanel');
+if (monitorContainer) startMonitorUI({ container: monitorContainer });
 
 // -- GitHub Sync UI ------------------------------------------------------------
 

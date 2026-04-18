@@ -9,6 +9,8 @@
 import {
   createAndEnqueue, listTasks, cancelTask, pauseTask, resumeTask,
 } from './task-manager.js';
+import { extensionCall } from './extension.js';
+import { createTaskRecord, putTask } from './task-store.js';
 
 export const LOCAL_CHANNEL_ID = 'local:ui';
 
@@ -143,13 +145,14 @@ async function handleLocalCommand(content) {
   if (/^!help\s*$/i.test(content)) {
     appendMessage(
       'Commands:\n' +
-      '!run <runbook>            — launch a saved runbook\n' +
+      '!run <runbook>                — launch a saved runbook\n' +
       '!schedule <interval> <prompt> — schedule a recurring task\n' +
-      '!tasks                    — list ongoing + recent tasks\n' +
-      '!cancel <id>              — cancel a task\n' +
-      '!pause <id>               — pause a scheduled task\n' +
-      '!resume <id>              — resume a paused task\n' +
-      '!help                     — show this message',
+      '!tasks                        — list ongoing + recent tasks\n' +
+      '!cancel <id>                  — cancel a task\n' +
+      '!pause <id>                   — pause a scheduled task\n' +
+      '!resume <id>                  — resume a paused task\n' +
+      '!help                         — show this message\n\n' +
+      'Tip: Say "watch Gmail for new emails and summarize them" to create a monitor.',
       'bot',
     );
     return;
