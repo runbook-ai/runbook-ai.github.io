@@ -91,34 +91,41 @@ function diff(currentDom, previousDom) {
   return buildAddedTree(currentDom);
 }
 
-// ── Semantic event extraction ─────────────────────────────────────────────────
+// ── HTML rendering of the diff subtree ───────────────────────────────────────
+// Emits `<tag attr="...">children</tag>` for element nodes and escaped text for
+// leaves. No ranking, cropping, or token counting — the diff tree is already
+// pruned to just-added content, which is small in practice.
 
-// Patterns that indicate UI noise rather than real user content
-const NOISE_RE = /^(\d{1,2}:\d{2}(:\d{2})?(\s?(am|pm))?$|today|yesterday|just now|edited|\.\.\.|typing\.*)$/i;
-const MIN_TEXT_LEN = 20;
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
-/**
- * Walk a diff-subtree and collect meaningful new text as SemanticEvents.
- * @returns {{ text: string, source: string }[]}
- */
-function extractSemanticEvents(diffDom, ctx = {}) {
-  if (!diffDom) return [];
-  const events = [];
+function textualize(node) {
+  if (!node) return '';
+  if (node.text !== undefined) return escapeHtml(node.text);
 
-  function walk(node) {
-    if (!node) return;
-    if (node.text !== undefined) {
-      const t = (node.text || '').trim();
-      if (t.length >= MIN_TEXT_LEN && !NOISE_RE.test(t)) {
-        events.push({ text: t, source: ctx.url || '' });
-      }
-      return;
+  const tag = node.tag || 'div';
+  let open = `<${tag}`;
+  if (node.title) open += ` title="${escapeHtml(node.title)}"`;
+  if (node.value && tag !== 'textarea') open += ` value="${escapeHtml(node.value)}"`;
+  for (const attr in (node.attributes || {})) {
+    if (attr === 'id') continue; // native ids are noise (random, change across renders)
+    const v = node.attributes[attr];
+    if (v && v !== 'false' && String(v).trim()) {
+      open += ` ${attr}="${escapeHtml(v)}"`;
     }
-    for (const child of (node.children ?? [])) walk(child);
   }
+  open += '>';
 
-  walk(diffDom);
-  return events;
+  let inner = '';
+  if (node.value && tag === 'textarea') inner += escapeHtml(node.value);
+  for (const child of (node.children ?? [])) inner += textualize(child);
+
+  return `${open}${inner}</${tag}>`;
 }
 
 // ── In-memory DOM baseline store ─────────────────────────────────────────────
@@ -134,7 +141,8 @@ const prevDomStore = new Map(); // taskId → { dom }
  * Reads:  task.config.tabId           — Chrome tab ID
  *         task.config.responseTemplate — used upstream in task-manager
  *
- * @returns {Promise<Array<{text:string, source:string}>>} semantic events (empty = no trigger)
+ * @returns {Promise<Array<{text:string, source:string}>>} one-entry array with
+ *   HTML-rendered diff subtree (empty = no trigger)
  */
 export async function runMonitorPoll(task) {
   const tabId = task.config?.tabId ?? 0;
@@ -179,6 +187,7 @@ export async function runMonitorPoll(task) {
   // settling noise. Real changes fire from poll 3 onward.
   if (polls <= 2) return [];
 
-  // Semantic extraction
-  return extractSemanticEvents(changed, { url: snap.url });
+  const html = textualize(changed);
+  if (!html) return [];
+  return [{ text: html, source: snap.url || '' }];
 }
