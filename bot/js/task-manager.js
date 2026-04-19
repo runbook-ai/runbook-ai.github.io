@@ -504,16 +504,17 @@ async function runMonitorTask(task) {
       if (!task.config.instruction) task.config.instruction = instruction; // backfill for restore
       task.prompt =
         `${instruction}\n\n---\n\n` +
-        `The watched page${url ? ' (' + url + ')' : ''} changed. The HTML below is the ` +
-        `subtree of new content captured by a content-hash DOM diff — nodes whose content was ` +
-        `not present in the prior snapshot of this page. Structure and attributes are preserved ` +
-        `so sender/subject/body groupings stay intact. Prefer to answer the user's instruction ` +
-        `directly from this HTML without calling browse — it is usually sufficient for ` +
-        `summarization, notification, and similar tasks. Only call browse if the instruction ` +
-        `genuinely needs information that isn't in the HTML (e.g., opening a full email body, ` +
-        `following a link). If the new content isn't material to the instruction, call done with ` +
-        `silent=true.\n\n` +
-        `New content:\n${eventTexts}`;
+        `The watched page${url ? ' (' + url + ')' : ''} changed. Below is a unified diff ` +
+        `produced by a content-hash DOM diff: lines starting with "-" are HTML present in the ` +
+        `prior snapshot but not the current one; lines starting with "+" are HTML present now ` +
+        `but not before; lines starting with " " (space) are unchanged structural context that ` +
+        `aligns the two sides. Each line is a single tag or text node, indented to reflect ` +
+        `nesting. Prefer to answer the user's instruction directly from this diff without ` +
+        `calling browse — it is usually sufficient for summarization, notification, and ` +
+        `similar tasks. Only call browse if the instruction genuinely needs information that ` +
+        `isn't in the diff (e.g., opening a full email body, following a link). If the change ` +
+        `isn't material to the instruction, call done with silent=true.\n\n` +
+        `Diff:\n${eventTexts}`;
 
       // Inject event history into context so planner has full conversation thread
       if (!task.context) task.context = {};

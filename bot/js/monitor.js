@@ -19,19 +19,25 @@ function hashString(str) {
 }
 
 // ── DOM diff ─────────────────────────────────────────────────────────────────
-// Purely content-addressed: a node's hash folds in its tag/title/value and the
-// recursive hashes of its children. Two nodes anywhere in the tree with the
-// same content have the same hash. We track the set of hashes present in the
-// previous snapshot; any current node whose hash is in that set is considered
-// already-seen and dropped from the diff — regardless of where it sits now.
+// Purely content-addressed, with two hashes per node:
+//   - fullHash: folds in tag/title/value + recursive child hashes (identifies
+//     the entire subtree).
+//   - selfHash: folds in tag/title/value only (identifies the node's own
+//     identity, independent of children).
 //
-// This makes the diff robust to reorderings, virtualized-list re-renders, and
-// DOM-index reshuffling (e.g., Gmail rebuilding its inbox rows when a new
-// email arrives no longer looks like "every row is new").
+// A node is emitted in the "new" side if its fullHash is not present anywhere
+// in the prior snapshot. If no children survive but its selfHash is also not
+// in prior — e.g., a <tr>'s aria-label flipped from "unread, …" to "me, …"
+// with children unchanged — emit the node as a shell (no children) so
+// title/value-only changes still surface.
+//
+// Symmetric use: call diff(current, previous) for additions, or
+// diff(previous, current) for removals. The monitor uses both to produce a
+// git-diff-style view.
 //
 // Limitations:
-// - Attribute-only changes (class, aria-*, data-*) aren't in the hash, so they
-//   won't surface in the diff. Same behavior as before.
+// - Attribute-only changes (class, aria-*, data-* other than title/value) are
+//   not in either hash, so they won't surface in the diff.
 // - Duplicate content collapses to one hash — if a page has two identical
 //   elements and a third appears, we won't detect the addition. Acceptable for
 //   change-detection; not acceptable for precise structural diffing.
@@ -40,27 +46,31 @@ function diff(currentDom, previousDom) {
   if (!previousDom) return currentDom;
   if (!currentDom)  return null;
 
-  function calculateHash(node) {
-    if (!node) return '';
+  function calculateHashes(node) {
+    if (!node) return;
     if (node.text !== undefined) {
       node.hash = hashString(node.text || '');
-      return node.hash;
+      node.selfHash = node.hash;
+      return;
     }
-    const parts = [(node.tag || ''), (node.title || ''), (node.value || '')];
-    if (node.children) {
-      for (const child of node.children) parts.push(calculateHash(child));
+    node.selfHash = hashString([node.tag || '', node.title || '', node.value || ''].join('|'));
+    const parts = [node.selfHash];
+    for (const child of (node.children ?? [])) {
+      calculateHashes(child);
+      parts.push(child.hash);
     }
     node.hash = hashString(parts.join('|'));
-    return node.hash;
   }
 
-  calculateHash(currentDom);
-  calculateHash(previousDom);
+  calculateHashes(currentDom);
+  calculateHashes(previousDom);
 
-  const previousHashes = new Set();
+  const prevFull = new Set();
+  const prevSelf = new Set();
   (function walk(node) {
     if (!node) return;
-    if (node.hash !== undefined) previousHashes.add(node.hash);
+    if (node.hash !== undefined) prevFull.add(node.hash);
+    if (node.selfHash !== undefined) prevSelf.add(node.selfHash);
     for (const child of (node.children ?? [])) walk(child);
   })(previousDom);
 
@@ -74,27 +84,20 @@ function diff(currentDom, previousDom) {
 
   function buildAddedTree(node) {
     if (!node) return null;
-    // Content we've already seen anywhere in prev — not new.
-    if (node.hash !== undefined && previousHashes.has(node.hash)) return null;
-    // Leaf text with a new hash — emit it.
+    if (node.hash !== undefined && prevFull.has(node.hash)) return null;
     if (node.text !== undefined) return cloneNode(node);
-    // Element with at least some new content inside — keep walking.
-    // (A parent's hash changing doesn't mean every child is new; most children
-    // may still match content-wise.)
-    const addedChildren = (node.children ?? [])
-      .map(buildAddedTree)
-      .filter(Boolean);
-    if (addedChildren.length === 0) return null;
-    return { ...node, children: addedChildren };
+    const addedChildren = (node.children ?? []).map(buildAddedTree).filter(Boolean);
+    if (addedChildren.length > 0) return { ...node, children: addedChildren };
+    // No child changed, but this node's own identity (tag/title/value) is new
+    // vs anywhere in prev — emit a shell so title/value-only changes surface.
+    if (!prevSelf.has(node.selfHash)) return { ...node, children: [] };
+    return null;
   }
 
   return buildAddedTree(currentDom);
 }
 
-// ── HTML rendering of the diff subtree ───────────────────────────────────────
-// Emits `<tag attr="...">children</tag>` for element nodes and escaped text for
-// leaves. No ranking, cropping, or token counting — the diff tree is already
-// pruned to just-added content, which is small in practice.
+// ── Pretty-print: one tag/text per line, indented ────────────────────────────
 
 function escapeHtml(s) {
   return String(s)
@@ -104,10 +107,7 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-function textualize(node) {
-  if (!node) return '';
-  if (node.text !== undefined) return escapeHtml(node.text);
-
+function openTag(node) {
   const tag = node.tag || 'div';
   let open = `<${tag}`;
   if (node.title) open += ` title="${escapeHtml(node.title)}"`;
@@ -119,13 +119,56 @@ function textualize(node) {
       open += ` ${attr}="${escapeHtml(v)}"`;
     }
   }
-  open += '>';
+  return open;
+}
 
-  let inner = '';
-  if (node.value && tag === 'textarea') inner += escapeHtml(node.value);
-  for (const child of (node.children ?? [])) inner += textualize(child);
+// Render a node into a list of indented lines. One tag or text per line so the
+// output can be fed to a line-level LCS diff. Empty elements collapse to a
+// single line (`<tag></tag>`).
+function prettyPrint(node, indent = '', out = []) {
+  if (!node) return out;
+  if (node.text !== undefined) {
+    out.push(indent + escapeHtml(node.text));
+    return out;
+  }
+  const tag = node.tag || 'div';
+  const open = openTag(node);
+  const kids = node.children ?? [];
+  const hasTextareaValue = node.value && tag === 'textarea';
+  if (kids.length === 0 && !hasTextareaValue) {
+    out.push(`${indent}${open}></${tag}>`);
+    return out;
+  }
+  out.push(`${indent}${open}>`);
+  if (hasTextareaValue) out.push(indent + '  ' + escapeHtml(node.value));
+  for (const c of kids) prettyPrint(c, indent + '  ', out);
+  out.push(`${indent}</${tag}>`);
+  return out;
+}
 
-  return `${open}${inner}</${tag}>`;
+// Standard LCS-based unified line diff. Inputs are line arrays; output is a
+// newline-joined string with leading ' ', '-', or '+' on each line.
+function lineDiff(a, b) {
+  const m = a.length, n = b.length;
+  // dp[i][j] = LCS length of a[i:] and b[j:]
+  const dp = Array.from({ length: m + 1 }, () => new Int32Array(n + 1));
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j]
+        ? dp[i + 1][j + 1] + 1
+        : (dp[i + 1][j] >= dp[i][j + 1] ? dp[i + 1][j] : dp[i][j + 1]);
+    }
+  }
+  const out = [];
+  let i = 0, j = 0;
+  while (i < m && j < n) {
+    if (a[i] === b[j]) { out.push(' ' + a[i]); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push('-' + a[i++]); }
+    else { out.push('+' + b[j++]); }
+  }
+  while (i < m) out.push('-' + a[i++]);
+  while (j < n) out.push('+' + b[j++]);
+  return out.join('\n');
 }
 
 // ── In-memory DOM baseline store ─────────────────────────────────────────────
@@ -175,19 +218,25 @@ export async function runMonitorPoll(task) {
 
   const polls = (prev.polls ?? 1) + 1;
 
-  // Structural diff
-  const changed = diff(snap.dom, prev.dom);
+  // Symmetric structural diff: pruned subtrees of what's removed and what's
+  // added. LCS-line-diff over their pretty-prints yields a unified, git-style
+  // view that aligns shared ancestors and tags only the truly-changed lines.
+  const added   = diff(snap.dom, prev.dom);
+  const removed = diff(prev.dom, snap.dom);
 
   // Always update baseline to the most recent snapshot.
   prevDomStore.set(task.id, { dom: snap.dom, polls });
 
-  if (!changed) return [];
+  if (!added && !removed) return [];
 
   // Warm-up: the first couple of polls absorb async-loaded content and other
   // settling noise. Real changes fire from poll 3 onward.
   if (polls <= 2) return [];
 
-  const html = textualize(changed);
-  if (!html) return [];
-  return [{ text: html, source: snap.url || '' }];
+  const removedLines = removed ? prettyPrint(removed) : [];
+  const addedLines   = added   ? prettyPrint(added)   : [];
+  if (removedLines.length === 0 && addedLines.length === 0) return [];
+
+  const unified = lineDiff(removedLines, addedLines);
+  return [{ text: unified, source: snap.url || '' }];
 }
