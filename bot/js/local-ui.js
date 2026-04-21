@@ -152,15 +152,15 @@ async function handleLocalCommand(content) {
   if (/^!help\s*$/i.test(content)) {
     appendMessage(
       'Commands:\n' +
-      '!run <runbook>                — launch a saved runbook\n' +
-      '!schedule <interval> <prompt> — schedule a recurring task\n' +
-      '!tasks                        — list ongoing + recent tasks\n' +
-      '!cancel <id>                  — cancel a task\n' +
-      '!pause <id>                   — pause a scheduled task\n' +
-      '!resume <id>                  — resume a paused task\n' +
+      '!run <runbook> - launch a saved runbook\n' +
+      '!schedule <dur> <prompt> - recurring task\n' +
+      '!tasks - list tasks\n' +
+      '!cancel <id> - cancel\n' +
+      '!pause <id> - pause\n' +
+      '!resume <id> - resume\n' +
       FILE_COMMANDS_HELP + '\n' +
-      '!help                         — show this message\n\n' +
-      'Tip: Say "watch Gmail for new emails and summarize them" to create a monitor.',
+      '!help - this message\n\n' +
+      'Tip: say "watch Gmail for new emails and summarize them" to create a monitor.',
       'bot',
     );
     return;
@@ -201,7 +201,7 @@ async function handleLocalCommand(content) {
       const sched = t.schedule ? ` (every ${formatMs(t.schedule.intervalMs)})` : '';
       const max = indent ? 45 : 60;
       const preview = t.prompt.length > max ? t.prompt.slice(0, max - 3) + '...' : t.prompt;
-      return `${indent}${icon} ${t.id} [${t.status}]${sched} — ${preview}`;
+      return `${indent}${icon} ${t.id} [${t.status}]${sched} - ${preview}`;
     }
 
     function tree(taskId, indent) {

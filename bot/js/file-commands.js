@@ -78,7 +78,7 @@ export async function maybeRunFileCommand(content) {
 
 /** Help text for these commands, shareable with the !help handler. */
 export const FILE_COMMANDS_HELP =
-  '!files [prefix]         — list files\n' +
-  '!file <path>            — read a file\n' +
-  '!grep <pattern> [path]  — search file contents\n' +
-  '!rm <path>              — delete a file';
+  '!files [prefix] - list files\n' +
+  '!file <path> - read a file\n' +
+  '!grep <pat> [prefix] - search files\n' +
+  '!rm <path> - delete a file';
