@@ -1,9 +1,9 @@
 import { loadSettings, saveSettings, getGitHubSync, saveGitHubSync } from './settings.js';
 import { gwConnect, gwDisconnect, gw } from './gateway.js';
 import { startCron } from './cron.js';
-import { enqueueTask, rehydrate, setDeliveryHandler, setTypingHandler, startMonitorTick } from './task-manager.js';
+import { enqueueTask, rehydrate, setDeliveryHandler, setTypingHandler, setProcessingHandlers, startMonitorTick } from './task-manager.js';
 import { sendDiscordMessage, triggerTyping } from './discord.js';
-import { logMessage } from './ui.js';
+import { logMessage, showProcessing, hideProcessing } from './ui.js';
 import { loadWorkspaceFile, saveWorkspaceFile, getDailyMemories, clearDailyMemories } from './memory-store.js';
 import { DEFAULT_SOUL, DEFAULT_AGENTS } from './planner.js';
 import { LOCAL_CHANNEL_ID, deliverToLocalUI, showLocalTyping } from './local-ui.js';
@@ -128,6 +128,12 @@ setTypingHandler((task) => {
   }
   const s = loadSettings();
   triggerTyping(task.channelId, s.botToken);
+});
+
+// Wire up bot-page's "Bot thinking" row to task lifecycle
+setProcessingHandlers({
+  onStart: (task) => showProcessing(task.channelId),
+  onStop:  ()     => hideProcessing(),
 });
 
 // -- Task system initialization ------------------------------------------------

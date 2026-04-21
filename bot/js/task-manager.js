@@ -14,7 +14,6 @@ import {
   getChildTasks,
 } from './task-store.js';
 import { computeNextRun, computeBackoff } from './cron.js';
-import { showProcessing, hideProcessing } from './ui.js';
 import { runPlan, UserCancelledError } from './planner.js';
 import { appendDailyMemory } from './memory-store.js';
 import { runMonitorPoll } from './monitor.js';
@@ -54,6 +53,27 @@ let typingFn = null;
 export function setTypingHandler(fn) {
   typingFn = fn;
 }
+
+// ── Processing indicator hooks ────────────────────────────────────────────────
+
+let processingStartFn = null;
+let processingStopFn  = null;
+
+/**
+ * Register processing-indicator hooks. Called when a task begins and ends
+ * executing, regardless of host. Bot page wires these to `showProcessing` /
+ * `hideProcessing` on its feed; the extension sidepanel wires them to the
+ * step strip.
+ *   onStart: (task) => void
+ *   onStop:  (task) => void
+ */
+export function setProcessingHandlers({ onStart, onStop } = {}) {
+  processingStartFn = onStart || null;
+  processingStopFn  = onStop  || null;
+}
+
+function showProcessing(task) { if (processingStartFn) processingStartFn(task); }
+function hideProcessing(task) { if (processingStopFn)  processingStopFn(task);  }
 
 // ── Serial queue ────────────────────────────────────────────────────────────
 
@@ -124,7 +144,7 @@ async function executeTask(task) {
   await putTask(task);
 
   if (task.channelId) {
-    showProcessing(task.channelId);
+    showProcessing(task);
     if (typingFn) typingFn(task);
   }
 
@@ -292,7 +312,7 @@ async function executeTask(task) {
       await deliver(task, notice);
     }
   } finally {
-    hideProcessing();
+    hideProcessing(task);
 
     // Check for pending follow-up (user replied while task was running)
     const freshTask = await getTask(task.id);
@@ -522,7 +542,7 @@ async function runMonitorTask(task) {
 
       // Run planner inline — same task, same context, no child spawning
       if (task.channelId) {
-        showProcessing(task.channelId);
+        showProcessing(task);
         if (typingFn) typingFn(task);
       }
       const planResult = await runPlan(task);
@@ -571,7 +591,7 @@ async function runMonitorTask(task) {
     task.consecutiveErrors = (task.consecutiveErrors ?? 0) + 1;
     task.lastError = errorMsg;
   } finally {
-    hideProcessing();
+    hideProcessing(task);
   }
 
   // Return to waiting with next scheduled run (unless already failed above)
