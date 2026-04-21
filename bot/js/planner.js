@@ -12,7 +12,14 @@ import { createAndEnqueue, cancelTask } from './task-manager.js';
 import { createTaskRecord, putTask } from './task-store.js';
 import { buildWorkspaceContext } from './memory-store.js';
 import { readFile, writeFile, appendFile, listFiles, deleteFile, fileInfo, grepFiles } from './file-store.js';
-import { extensionCall } from './extension.js';
+import { extensionCall as defaultExtensionCall } from './extension.js';
+
+// Pluggable action runner. Bot page uses the default (chrome.runtime.sendMessage
+// to the extension). Extension sidepanel registers a direct in-process runner
+// that calls `actions.js` in the same document — avoids the round-trip.
+let runAction = defaultExtensionCall;
+export function setActionRunner(fn) { runAction = fn || defaultExtensionCall; }
+const extensionCall = (action, args) => runAction(action, args);
 
 /** Thrown when the user cancels a headless task in the extension. */
 export class UserCancelledError extends Error {
