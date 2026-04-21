@@ -56,11 +56,11 @@ export async function maybeRunFileCommand(content) {
   if (grepMatch) {
     const pattern = grepMatch[1];
     const prefix = (grepMatch[2] ?? '').trim();
-    const results = await grepFiles(pattern, { prefix, maxResults: 10 });
-    if (!results.length) return { text: `No matches for "${pattern}"${prefix ? ` under "${prefix}"` : ''}.` };
+    const { matches } = await grepFiles(pattern, { prefix, maxResults: 10 });
+    if (!matches.length) return { text: `No matches for "${pattern}"${prefix ? ` under "${prefix}"` : ''}.` };
     const lines = [];
-    for (const r of results) {
-      lines.push(`${r.path}:${r.lineNum}: ${r.text}`);
+    for (const m of matches) {
+      for (const l of (m.lines ?? [])) lines.push(`${m.path}:${l.lineNum}: ${l.text}`);
     }
     return { text: lines.join('\n') };
   }
