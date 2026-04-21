@@ -39,7 +39,7 @@ export async function maybeRunFileCommand(content) {
   }
 
   // !file <path>
-  const fileMatch = trimmed.match(/^!file\s+(\S.+)$/i);
+  const fileMatch = trimmed.match(/^!file\s+(.+)$/i);
   if (fileMatch) {
     const path = fileMatch[1].trim();
     const info = await fileInfo(path);
@@ -66,7 +66,7 @@ export async function maybeRunFileCommand(content) {
   }
 
   // !rm <path>
-  const rmMatch = trimmed.match(/^!rm\s+(\S.+)$/i);
+  const rmMatch = trimmed.match(/^!rm\s+(.+)$/i);
   if (rmMatch) {
     const path = rmMatch[1].trim();
     const ok = await deleteFile(path);
