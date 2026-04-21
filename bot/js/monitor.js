@@ -5,7 +5,16 @@
  *   runMonitorPoll(task)  — one poll cycle; returns SemanticEvent[]
  */
 
-import { extensionCall } from './extension.js';
+import { extensionCall as defaultExtensionCall } from './extension.js';
+
+// Pluggable action runner, same pattern as planner.js. Bot page uses the
+// default (chrome.runtime.sendMessage → extension). The extension sidepanel
+// registers a direct in-process runner via task-host.js so poll calls don't
+// round-trip back through the extension's external-message dispatcher (which
+// returns `unknown-action` for `fetchWebPage`).
+let runAction = defaultExtensionCall;
+export function setActionRunner(fn) { runAction = fn || defaultExtensionCall; }
+const extensionCall = (action, args) => runAction(action, args);
 
 // ── Hash (sync djb2, adapted from extension/util.js) ─────────────────────────
 
