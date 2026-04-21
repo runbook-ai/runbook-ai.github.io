@@ -11,6 +11,7 @@ import {
 } from './task-manager.js';
 import { extensionCall } from './extension.js';
 import { createTaskRecord, getTask, putTask } from './task-store.js';
+import { maybeRunFileCommand, FILE_COMMANDS_HELP } from './file-commands.js';
 
 export const LOCAL_CHANNEL_ID = 'local:ui';
 
@@ -157,10 +158,17 @@ async function handleLocalCommand(content) {
       '!cancel <id>                  — cancel a task\n' +
       '!pause <id>                   — pause a scheduled task\n' +
       '!resume <id>                  — resume a paused task\n' +
+      FILE_COMMANDS_HELP + '\n' +
       '!help                         — show this message\n\n' +
       'Tip: Say "watch Gmail for new emails and summarize them" to create a monitor.',
       'bot',
     );
+    return;
+  }
+
+  const fileCmd = await maybeRunFileCommand(content);
+  if (fileCmd) {
+    appendMessage(fileCmd.text, 'bot');
     return;
   }
 

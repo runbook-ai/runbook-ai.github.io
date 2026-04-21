@@ -5,6 +5,7 @@ import {
   fetchDiscordMessage, fetchChannel, fetchChannelMessages,
 } from './discord.js';
 import { proxyFetch } from './proxy.js';
+import { maybeRunFileCommand, FILE_COMMANDS_HELP } from './file-commands.js';
 import {
   createAndEnqueue, listTasks, cancelTask,
   pauseTask, resumeTask,
@@ -340,6 +341,7 @@ async function handleDM(msg, botUserId, s) {
       '`!cancel <id>` - cancel a task\n' +
       '`!pause <id>` - pause a scheduled task\n' +
       '`!resume <id>` - resume a paused task\n' +
+      '```\n' + FILE_COMMANDS_HELP + '\n```\n' +
       '`!help` - show this message';
     await sendDiscordMessage(channelId, help, s.botToken, msg.id);
     logMessage({ channel_id: channelId, content: help }, 'outgoing');
@@ -348,6 +350,13 @@ async function handleDM(msg, botUserId, s) {
 
   if (/^!tasks\s*$/i.test(content)) {
     await handleTasksCommand(channelId, msg.id, s);
+    return;
+  }
+
+  const fileCmd = await maybeRunFileCommand(content);
+  if (fileCmd) {
+    await sendDiscordMessage(channelId, '```\n' + fileCmd.text + '\n```', s.botToken, msg.id);
+    logMessage({ channel_id: channelId, content: fileCmd.text }, 'outgoing');
     return;
   }
 
@@ -547,6 +556,7 @@ async function handleGroupCommand(msg, channelId, body, s) {
       '`!cancel <id>` - cancel a task\n' +
       '`!pause <id>` - pause a scheduled task\n' +
       '`!resume <id>` - resume a paused task\n' +
+      '```\n' + FILE_COMMANDS_HELP + '\n```\n' +
       '`!help` - show this message';
     await sendDiscordMessage(channelId, help, s.botToken, msg.id);
     logMessage({ channel_id: channelId, content: help }, 'outgoing');
@@ -555,6 +565,13 @@ async function handleGroupCommand(msg, channelId, body, s) {
 
   if (/^!tasks\s*$/i.test(body)) {
     await handleTasksCommand(channelId, msg.id, s);
+    return;
+  }
+
+  const bodyFileCmd = await maybeRunFileCommand(body);
+  if (bodyFileCmd) {
+    await sendDiscordMessage(channelId, '```\n' + bodyFileCmd.text + '\n```', s.botToken, msg.id);
+    logMessage({ channel_id: channelId, content: bodyFileCmd.text }, 'outgoing');
     return;
   }
 
