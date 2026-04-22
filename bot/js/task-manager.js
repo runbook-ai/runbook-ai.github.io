@@ -657,11 +657,7 @@ async function executeMonitorFire(task) {
       `isn't material to the instruction, call done with silent=true.\n\n` +
       `Diff:\n${eventTexts}`;
 
-    // Tell the planner to surface task.prompt (the live diff) as the current
-    // user turn instead of the generic "recurring run" nudge. Without this the
-    // LLM only sees history and never sees *this* fire's diff.
     if (!task.context) task.context = {};
-    task.context.__hasNewInput = true;
 
     const planResult = await runPlan(task);
 
@@ -677,14 +673,11 @@ async function executeMonitorFire(task) {
     if (planResult.runSummary) task.context.__runSummary = planResult.runSummary;
     if (planResult.trajectory) task.context.__trajectory = planResult.trajectory;
 
-    if (!task.context.history) task.context.history = [];
-    // Only the instruction + result are kept in history across fires. The
-    // full diff prompt (which can be megabytes over time) would balloon the
-    // LLM context on subsequent fires — each new poll already supplies its
-    // own current diff as the live `user` turn, and task.context.__monitorEvents
-    // retains the last 10 event batches for any planner that cares.
-    task.context.history.push({ role: 'user',      content: task.config.instruction ?? '' });
-    task.context.history.push({ role: 'assistant', content: task.result });
+    // Intentionally do NOT append to task.context.history. Monitor fires are
+    // independent events — the LLM only needs the current diff + instruction
+    // to decide what to do. Replaying prior fires would bloat the prompt (diffs
+    // are huge) and rarely changes the decision. If cross-fire continuity is
+    // ever needed, add it via a dedicated compact summary, not raw history.
 
     // Restore original prompt (instruction) for display
     task.prompt = task.config.instruction ?? task.prompt;
