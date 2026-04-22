@@ -148,6 +148,16 @@ async function executeTask(task) {
     if (typingFn) typingFn(task);
   }
 
+  // Monitor fires go through their own narrower flow.
+  if (task.type === 'monitor') {
+    try {
+      await executeMonitorFire(task);
+    } finally {
+      hideProcessing(task);
+    }
+    return;
+  }
+
   try {
     // Inject child task statuses so the planner can react to child completions
     const children = await getChildTasks(task.id);
@@ -496,86 +506,38 @@ export async function rehydrate() {
 const MONITOR_TICK_MS = 2_000;
 let monitorTickTimer  = null;
 
-/** Execute one monitor poll and run the planner inline if new content is detected. */
-async function runMonitorTask(task) {
-  task.status    = 'running';
+/**
+ * Poll one monitor. Cheap: fetchWebPage + content-hash diff only. When the
+ * poll detects events, stash them on the task and hand it off to the serial
+ * readyQueue via enqueueTask(). The actual planner run (which contends for
+ * the browser) happens inside `executeTask` → `executeMonitorFire`, so
+ * simultaneous monitor fires are serialized with all other browser work
+ * and never hit `task-already-running` from runHeadlessTaskWithConfig.
+ *
+ * If the poll doesn't fire, or fails with a non-fatal error, the task stays
+ * 'waiting' and its nextRunAt is pushed by intervalMs. A tab-gone error
+ * marks the task 'failed' and clears nextRunAt so the tick stops picking
+ * it up (same behavior as before).
+ */
+async function pollMonitor(task) {
   task.lastRunAt = new Date().toISOString();
-  task.runCount += 1;
-  await putTask(task, { skipSync: true });
 
   try {
     const events = await runMonitorPoll(task);
 
     if (events.length > 0) {
       if (!task.config) task.config = {};
-
-      // Append to message history (bounded to 100 entries)
-      if (!Array.isArray(task.config.messageHistory)) task.config.messageHistory = [];
-      task.config.messageHistory.push({ at: new Date().toISOString(), events });
-      if (task.config.messageHistory.length > 100) {
-        task.config.messageHistory = task.config.messageHistory.slice(-100);
-      }
-
-      // Build prompt: user instruction first, then detected content below
-      // Capture instruction before mutating task.prompt
-      const instruction = task.config.instruction ?? task.prompt;
-      const eventTexts  = events.map(e => e.text).join('\n\n');
-      const url         = events[0]?.source ?? task.config.tabUrl ?? '';
-      if (!task.config.instruction) task.config.instruction = instruction; // backfill for restore
-      task.prompt =
-        `${instruction}\n\n---\n\n` +
-        `The watched page${url ? ' (' + url + ')' : ''} changed. Below is a unified diff ` +
-        `produced by a content-hash DOM diff: lines starting with "-" are HTML present in the ` +
-        `prior snapshot but not the current one; lines starting with "+" are HTML present now ` +
-        `but not before; lines starting with " " (space) are unchanged structural context that ` +
-        `aligns the two sides. Each line is a single tag or text node, indented to reflect ` +
-        `nesting. Prefer to answer the user's instruction directly from this diff without ` +
-        `calling browse — it is usually sufficient for summarization, notification, and ` +
-        `similar tasks. Only call browse if the instruction genuinely needs information that ` +
-        `isn't in the diff (e.g., opening a full email body, following a link). If the change ` +
-        `isn't material to the instruction, call done with silent=true.\n\n` +
-        `Diff:\n${eventTexts}`;
-
-      // Inject event history into context so planner has full conversation thread
-      if (!task.context) task.context = {};
-      task.context.__monitorEvents = task.config.messageHistory.slice(-10);
-
-      // Run planner inline — same task, same context, no child spawning
-      if (task.channelId) {
-        showProcessing(task);
-        if (typingFn) typingFn(task);
-      }
-      const planResult = await runPlan(task);
-
-      // Persist result and update conversation history
-      task.result = planResult.result || '';
-      if (planResult.memory && typeof planResult.memory === 'object') {
-        const preserved = {};
-        for (const [k, v] of Object.entries(task.context)) {
-          if (k === 'history' || k.startsWith('__')) preserved[k] = v;
-        }
-        task.context = { ...preserved, ...planResult.memory };
-      }
-      if (planResult.runSummary) task.context.__runSummary = planResult.runSummary;
-      if (planResult.trajectory) task.context.__trajectory = planResult.trajectory;
-
-      // Save exchange to history so next run has full context
-      if (!task.context.history) task.context.history = [];
-      task.context.history.push({ role: 'user',      content: task.prompt });
-      task.context.history.push({ role: 'assistant', content: task.result });
-
-      // Restore original prompt (instruction) for display
-      task.prompt = task.config.instruction ?? task.prompt;
-
-      task.consecutiveErrors = 0;
-      task.lastError = null;
-
-      if (task.result && task.channelId && !planResult.silent) {
-        await deliver(task, task.result);
-      }
+      // Stash for executeMonitorFire. Cleared after the fire runs so each
+      // re-queue has its own batch.
+      task.config.pendingMonitorEvents = events;
+      task.status = 'queued';
+      await putTask(task, { skipSync: true });
+      if (!readyQueue.includes(task.id)) readyQueue.push(task.id);
+      if (!running) drainQueue();
+      return;
     }
   } catch (err) {
-    console.error('[task-manager] runMonitorTask error:', task.id, err);
+    console.error('[task-manager] pollMonitor error:', task.id, err);
     const errorMsg = err?.message ?? String(err);
 
     // Fail immediately if tab is gone — no point retrying
@@ -587,23 +549,117 @@ async function runMonitorTask(task) {
       return;
     }
 
-    // For other errors, retry with backoff
     task.consecutiveErrors = (task.consecutiveErrors ?? 0) + 1;
     task.lastError = errorMsg;
-  } finally {
-    hideProcessing(task);
   }
 
-  // Return to waiting with next scheduled run (unless already failed above)
-  if (task.status === 'failed') return;
-
+  // No fire this tick — reschedule the next poll.
   const intervalMs = task.schedule?.intervalMs ?? 60_000;
-  task.status      = 'waiting';
-  task.nextRunAt   = new Date(Date.now() + intervalMs).toISOString();
+  task.status    = 'waiting';
+  task.nextRunAt = new Date(Date.now() + intervalMs).toISOString();
   await putTask(task, { skipSync: true });
 }
 
-/** Monitor tick: runs every 2 s, fires due monitor tasks in parallel outside the serial queue. */
+/**
+ * Run the planner for a monitor whose poll detected events. Invoked from
+ * executeTask (serialized with every other agent task through readyQueue).
+ * Reads task.config.pendingMonitorEvents set by pollMonitor, builds the
+ * fire prompt, runs the planner, saves the exchange, and resets status
+ * to 'waiting' with a fresh nextRunAt so monitorTick picks it up again.
+ */
+async function executeMonitorFire(task) {
+  if (!task.config) task.config = {};
+  const events = task.config.pendingMonitorEvents || [];
+  delete task.config.pendingMonitorEvents;
+
+  if (events.length === 0) {
+    // Shouldn't happen, but be defensive — bounce back to waiting.
+    const intervalMs = task.schedule?.intervalMs ?? 60_000;
+    task.status    = 'waiting';
+    task.nextRunAt = new Date(Date.now() + intervalMs).toISOString();
+    await putTask(task, { skipSync: true });
+    return;
+  }
+
+  try {
+    // Append to message history (bounded to 100 entries)
+    if (!Array.isArray(task.config.messageHistory)) task.config.messageHistory = [];
+    task.config.messageHistory.push({ at: new Date().toISOString(), events });
+    if (task.config.messageHistory.length > 100) {
+      task.config.messageHistory = task.config.messageHistory.slice(-100);
+    }
+
+    // Build prompt: user instruction first, then detected content below
+    const instruction = task.config.instruction ?? task.prompt;
+    const eventTexts  = events.map(e => e.text).join('\n\n');
+    const url         = events[0]?.source ?? task.config.tabUrl ?? '';
+    if (!task.config.instruction) task.config.instruction = instruction; // backfill for restore
+    task.prompt =
+      `${instruction}\n\n---\n\n` +
+      `The watched page${url ? ' (' + url + ')' : ''} changed. Below is a unified diff ` +
+      `produced by a content-hash DOM diff: lines starting with "-" are HTML present in the ` +
+      `prior snapshot but not the current one; lines starting with "+" are HTML present now ` +
+      `but not before; lines starting with " " (space) are unchanged structural context that ` +
+      `aligns the two sides. Each line is a single tag or text node, indented to reflect ` +
+      `nesting. Prefer to answer the user's instruction directly from this diff without ` +
+      `calling browse — it is usually sufficient for summarization, notification, and ` +
+      `similar tasks. Only call browse if the instruction genuinely needs information that ` +
+      `isn't in the diff (e.g., opening a full email body, following a link). If the change ` +
+      `isn't material to the instruction, call done with silent=true.\n\n` +
+      `Diff:\n${eventTexts}`;
+
+    // Inject event history into context so planner has full conversation thread
+    if (!task.context) task.context = {};
+    task.context.__monitorEvents = task.config.messageHistory.slice(-10);
+
+    const planResult = await runPlan(task);
+
+    // Persist result and update conversation history
+    task.result = planResult.result || '';
+    if (planResult.memory && typeof planResult.memory === 'object') {
+      const preserved = {};
+      for (const [k, v] of Object.entries(task.context)) {
+        if (k === 'history' || k.startsWith('__')) preserved[k] = v;
+      }
+      task.context = { ...preserved, ...planResult.memory };
+    }
+    if (planResult.runSummary) task.context.__runSummary = planResult.runSummary;
+    if (planResult.trajectory) task.context.__trajectory = planResult.trajectory;
+
+    if (!task.context.history) task.context.history = [];
+    task.context.history.push({ role: 'user',      content: task.prompt });
+    task.context.history.push({ role: 'assistant', content: task.result });
+
+    // Restore original prompt (instruction) for display
+    task.prompt = task.config.instruction ?? task.prompt;
+
+    task.consecutiveErrors = 0;
+    task.lastError = null;
+
+    if (task.result && task.channelId && !planResult.silent) {
+      await deliver(task, task.result);
+    }
+  } catch (err) {
+    console.error('[task-manager] executeMonitorFire error:', task.id, err);
+    task.consecutiveErrors = (task.consecutiveErrors ?? 0) + 1;
+    task.lastError = err?.message ?? String(err);
+    // fall through to reset below so the tick keeps retrying
+  }
+
+  // Reset to waiting with next scheduled poll (unless already failed above)
+  if (task.status === 'failed') return;
+  const intervalMs = task.schedule?.intervalMs ?? 60_000;
+  task.status    = 'waiting';
+  task.nextRunAt = new Date(Date.now() + intervalMs).toISOString();
+  await putTask(task, { skipSync: true });
+}
+
+/**
+ * Monitor tick: every 2 s, polls all due monitors in parallel (cheap — each
+ * poll is just fetchWebPage + hash diff, no browser agent). Polls that
+ * detect events enqueue the task onto `readyQueue`, where the actual
+ * planner run is serialized with every other browser task via drainQueue.
+ */
 async function monitorTick() {
   try {
     const waiting = await getTasksByStatus('waiting');
@@ -614,7 +670,7 @@ async function monitorTick() {
       new Date(t.nextRunAt).getTime() <= now
     );
     if (due.length > 0) {
-      await Promise.allSettled(due.map(t => runMonitorTask(t)));
+      await Promise.allSettled(due.map(t => pollMonitor(t)));
     }
   } catch (err) {
     console.error('[task-manager] monitorTick error:', err);
