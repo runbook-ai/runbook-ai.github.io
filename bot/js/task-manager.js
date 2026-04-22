@@ -657,9 +657,11 @@ async function executeMonitorFire(task) {
       `isn't material to the instruction, call done with silent=true.\n\n` +
       `Diff:\n${eventTexts}`;
 
-    // Inject event history into context so planner has full conversation thread
+    // Tell the planner to surface task.prompt (the live diff) as the current
+    // user turn instead of the generic "recurring run" nudge. Without this the
+    // LLM only sees history and never sees *this* fire's diff.
     if (!task.context) task.context = {};
-    task.context.__monitorEvents = task.config.messageHistory.slice(-10);
+    task.context.__hasNewInput = true;
 
     const planResult = await runPlan(task);
 
