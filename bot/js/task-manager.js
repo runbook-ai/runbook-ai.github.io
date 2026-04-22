@@ -480,24 +480,61 @@ export async function removeTask(id) {
   await deleteTask(id);
 }
 
-/** Rehydrate: on page load, re-enqueue any tasks that were 'queued' or 'running'. */
+/**
+ * Rehydrate on host (sidepanel / bot-page) reload.
+ *
+ * - `queued` agent/scheduled task → resume (never got to run, safe to execute).
+ * - `running` agent task → fail terminally (mid-LLM call interrupted; don't
+ *   silently redo an expensive run and don't risk state corruption).
+ * - `running` recurring task → fail this run but bounce to 'waiting' with
+ *   nextRunAt=now so cron fires the next scheduled occurrence.
+ * - Any monitor task found in `queued`/`running` → reset to 'waiting' with
+ *   nextRunAt=now; next monitor tick re-polls. Stashed
+ *   `config.pendingMonitorEvents` is discarded (re-detected by fresh poll).
+ */
 export async function rehydrate() {
-  const queued  = await getTasksByStatus('queued');
-  const stuck   = await getTasksByStatus('running');
-  for (const task of [...stuck, ...queued]) {
+  const queued = await getTasksByStatus('queued');
+  const stuck  = await getTasksByStatus('running');
+  const now = new Date().toISOString();
+
+  // Resume `queued` tasks (they never started).
+  for (const task of queued) {
     if (task.type === 'monitor') {
-      // Reset monitor tasks to waiting so the monitor tick picks them up
+      if (task.config) delete task.config.pendingMonitorEvents;
       task.status    = 'waiting';
-      task.nextRunAt = new Date().toISOString();
+      task.nextRunAt = now;
       await putTask(task, { skipSync: true });
       continue;
     }
-    task.status = 'queued';
-    await putTask(task);
-    if (!readyQueue.includes(task.id)) {
-      readyQueue.push(task.id);
-    }
+    // Already 'queued' in IDB; just push onto the in-memory readyQueue.
+    if (!readyQueue.includes(task.id)) readyQueue.push(task.id);
   }
+
+  // Fail `running` tasks (interrupted mid-run).
+  for (const task of stuck) {
+    if (task.type === 'monitor') {
+      if (task.config) delete task.config.pendingMonitorEvents;
+      task.status    = 'waiting';
+      task.nextRunAt = now;
+      await putTask(task, { skipSync: true });
+      continue;
+    }
+
+    task.consecutiveErrors = (task.consecutiveErrors ?? 0) + 1;
+    task.lastError = 'Interrupted by sidepanel close';
+
+    if (task.schedule) {
+      // Recurring — fail this run, keep the task alive for its next fire.
+      task.status    = 'waiting';
+      task.nextRunAt = now;
+    } else {
+      // One-shot — fail terminally. User can re-send if they want.
+      task.status    = 'failed';
+      task.nextRunAt = null;
+    }
+    await putTask(task, { skipSync: true });
+  }
+
   if (readyQueue.length > 0 && !running) drainQueue();
 }
 
