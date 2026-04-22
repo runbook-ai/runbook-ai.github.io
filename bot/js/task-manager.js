@@ -562,6 +562,11 @@ async function pollMonitor(task) {
   try {
     const events = await runMonitorPoll(task);
 
+    // User may have cancelled during the fetchWebPage await — check DB before
+    // overwriting. Otherwise a click on the X button races the poll's final
+    // putTask and the task reappears (then vanishes on the next click).
+    if (await wasCancelled(task.id)) return;
+
     if (events.length > 0) {
       if (!task.config) task.config = {};
       // Stash for executeMonitorFire. Cleared after the fire runs so each
@@ -575,6 +580,7 @@ async function pollMonitor(task) {
     }
   } catch (err) {
     console.error('[task-manager] pollMonitor error:', task.id, err);
+    if (await wasCancelled(task.id)) return;
     const errorMsg = err?.message ?? String(err);
 
     // Fail immediately if tab is gone — no point retrying
@@ -595,6 +601,12 @@ async function pollMonitor(task) {
   task.status    = 'waiting';
   task.nextRunAt = new Date(Date.now() + intervalMs).toISOString();
   await putTask(task, { skipSync: true });
+}
+
+/** True if the task has been cancelled in IDB since we loaded our copy. */
+async function wasCancelled(id) {
+  const fresh = await getTask(id);
+  return !!(fresh && fresh.status === 'failed' && fresh.lastError === 'Cancelled by user');
 }
 
 /**
@@ -664,7 +676,12 @@ async function executeMonitorFire(task) {
     if (planResult.trajectory) task.context.__trajectory = planResult.trajectory;
 
     if (!task.context.history) task.context.history = [];
-    task.context.history.push({ role: 'user',      content: task.prompt });
+    // Only the instruction + result are kept in history across fires. The
+    // full diff prompt (which can be megabytes over time) would balloon the
+    // LLM context on subsequent fires — each new poll already supplies its
+    // own current diff as the live `user` turn, and task.context.__monitorEvents
+    // retains the last 10 event batches for any planner that cares.
+    task.context.history.push({ role: 'user',      content: task.config.instruction ?? '' });
     task.context.history.push({ role: 'assistant', content: task.result });
 
     // Restore original prompt (instruction) for display
@@ -673,11 +690,14 @@ async function executeMonitorFire(task) {
     task.consecutiveErrors = 0;
     task.lastError = null;
 
+    if (await wasCancelled(task.id)) return;
+
     if (task.result && task.channelId && !planResult.silent) {
       await deliver(task, task.result);
     }
   } catch (err) {
     console.error('[task-manager] executeMonitorFire error:', task.id, err);
+    if (await wasCancelled(task.id)) return;
     task.consecutiveErrors = (task.consecutiveErrors ?? 0) + 1;
     task.lastError = err?.message ?? String(err);
     // fall through to reset below so the tick keeps retrying
