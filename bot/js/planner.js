@@ -21,6 +21,15 @@ let runAction = defaultExtensionCall;
 export function setActionRunner(fn) { runAction = fn || defaultExtensionCall; }
 const extensionCall = (action, args) => runAction(action, args);
 
+// Availability check for the run_native_agent planner tool. Default false —
+// bot page doesn't have a native messaging host. Extension's task-host.js
+// registers a function that returns true when (nativeAgentCmd is set) AND
+// (the native host is reachable). Hidden from the LLM's tool list otherwise.
+let isNativeAgentAvailable = async () => false;
+export function setNativeAgentAvailable(fn) {
+  isNativeAgentAvailable = fn || (async () => false);
+}
+
 /** Thrown when the user cancels a headless task in the extension. */
 export class UserCancelledError extends Error {
   constructor() { super('Task cancelled by user'); }
@@ -357,6 +366,23 @@ const PLANNER_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'run_native_agent',
+      description: 'Delegate a self-contained subtask to a local CLI agent on the host machine (e.g., Claude Code, Gemini). Use for work that does NOT need a browser — anything involving the local filesystem, shell commands, code generation, or analysis the host can do faster than a browser cycle. Examples: "summarize the last 10 commits in repo X", "run kubectl get pods -n prod and report status", "read the deployment.yaml in /home/me/infra and report the readinessProbe path". The native agent runs in its own process and does NOT see this conversation, so the prompt must be fully self-contained (cwd hint, file paths, expected output format). Returns { exitCode, stdout, stderr, durationMs, truncated }. Output is capped (256 KB by default) — ask for concise responses. Auto-hidden when not configured. Do NOT use for browser-driven work — use browse / create_monitor / set_schedule for those.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'Self-contained instruction for the native agent. Include any context, paths, and output expectations.',
+          },
+        },
+        required: ['prompt'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'done',
       description: 'The plan is complete. Return the final summary and any data to remember. For recurring scheduled tasks, set stopReached to true when the stop condition has been met so the task auto-completes.',
       parameters: {
@@ -412,6 +438,7 @@ const DEFAULT_AGENTS = `You have access to:
 
   For create_monitor, the instruction must describe the ACTION on change only — do NOT include polling words like "every X seconds" or "monitor" or "keep checking" in the instruction, those are implicit from intervalMs. Example: instruction = "Summarize new emails from the last tick and draft replies", NOT "monitor every 10s and summarize".
 - **cancel_task**: Cancel a child task and all its descendants. Use when a child is no longer needed (e.g. user changed direction).
+- **run_native_agent** (only when configured): Delegate a self-contained subtask to a local CLI agent on the host (e.g. Claude Code, Gemini). Use for filesystem, shell, code-analysis work that does NOT need a browser. Faster than browse for non-web tasks. The native agent doesn't see this conversation — make the prompt fully self-contained.
 - **read_file / write_file / append_file / list_files / delete_file / file_info / grep_files**: Persistent file storage. Use to save reports, CSVs, data, images, etc. that persist across task runs. Use append_file for logs and CSVs where you add rows over time. Files are synced to GitHub.
 - **done**: Finish the plan with a summary. Always populate these fields when relevant:
   - **memory**: structured data for future runs of THIS task (replaces previous memory entirely — include everything to keep)
@@ -575,8 +602,15 @@ export async function runPlan(task) {
   const maxBrowse = MAX_BROWSE;
   const browseTrajectories = [];
 
+  // Hide tools whose preconditions aren't met so the LLM can't waste a call
+  // on them. run_native_agent needs a configured cmd + reachable host.
+  const nativeAgentOk = await isNativeAgentAvailable();
+  const activeTools = PLANNER_TOOLS.filter(t =>
+    t.function.name !== 'run_native_agent' || nativeAgentOk
+  );
+
   for (let step = 0; step < MAX_STEPS; step++) {
-    const resp = await think(messages, PLANNER_TOOLS);
+    const resp = await think(messages, activeTools);
 
     // LLM returned tool calls
     if (resp.toolCalls) {
@@ -777,6 +811,16 @@ export async function runPlan(task) {
               prefix: args.prefix || '',
               maxResults: args.maxResults || 10,
             });
+            break;
+          }
+
+          case 'run_native_agent': {
+            console.log('[planner] run_native_agent:', (args.prompt || '').slice(0, 80));
+            try {
+              toolResult = await extensionCall('runNativeAgent', { prompt: args.prompt });
+            } catch (err) {
+              toolResult = { error: 'native-agent-call-failed', message: err?.message || String(err) };
+            }
             break;
           }
 
