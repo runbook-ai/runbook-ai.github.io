@@ -243,7 +243,7 @@ async function handleLocalCommand(content) {
       schedule:  { type: 'every', intervalMs },
     });
     appendMessage(
-      `Scheduled task \`${task.id}\` to run every ${formatMs(intervalMs)}. First run starting now.`,
+      `Scheduled task ${task.id} to run every ${formatMs(intervalMs)}. First run starting now.`,
       'bot',
     );
     return;
