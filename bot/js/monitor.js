@@ -59,6 +59,17 @@ function calculateHashes(node) {
 
 // ── Pretty-print helpers ─────────────────────────────────────────────────────
 
+function frameIndexToPrefix(frameIndex) {
+  if (frameIndex < 0) return '';
+  let prefix = '';
+  let index = frameIndex;
+  do {
+    prefix = String.fromCharCode(97 + (index % 26)) + prefix;
+    index = Math.floor(index / 26) - 1;
+  } while (index >= 0);
+  return prefix;
+}
+
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')
@@ -70,6 +81,10 @@ function escapeHtml(s) {
 function openTag(node) {
   const tag = node.tag || 'div';
   let open = `<${tag}`;
+  if (node.index !== undefined) {
+    const prefix = frameIndexToPrefix(node.frameIndex ?? 0);
+    open += ` id="${prefix}${node.index}"`;
+  }
   if (node.title) open += ` title="${escapeHtml(node.title)}"`;
   if (node.value && tag !== 'textarea') open += ` value="${escapeHtml(node.value)}"`;
   for (const attr in (node.attributes || {})) {
