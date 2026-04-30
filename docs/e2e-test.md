@@ -228,6 +228,166 @@ Requires channel participants to be available in the triager/planner context.
 4. Verify the replied message does NOT appear in activity log
 5. Check console — no triage log for that message
 
+## Local Chat Mode Tests
+
+The bot page exposes an in-browser chat panel (#chatPanel) that creates tasks
+with `channelId = LOCAL_CHANNEL_ID` (`local:ui`). Replies render directly in
+the page — no Discord call. Tests run entirely on the bot page and do not
+require the Discord tab.
+
+Notes:
+- Same CDP constraint as Discord tests: free-form prompts that drive the
+  extension still require the extension's CDP actions to be free. Use
+  CDP-free prompts (e.g. "what is 2+2", or `!help`/`!tasks`).
+- Use `#chatInput` / `#chatSend` (or press Enter) to send. Bot responses
+  render as `.log-entry.outgoing` with the bot's task id on `data-task-id`.
+
+### Phase L1: Verify chat panel renders
+
+1. `select_page` bot page (with `bringToFront: true`)
+2. `take_snapshot` — confirm `#chatPanel` is visible (not `.hidden`),
+   `#chatFeed` shows the empty state, and `#chatInput` is enabled
+3. Verify `Settings` and `Monitor` buttons exist in the nav
+
+### Phase L2: Test `!help` in local chat
+
+1. `fill` `#chatInput` with `!help`, then click `#chatSend` (or press Enter)
+2. `wait_for` text including `!schedule` and `!tasks` in the chat feed
+3. Verify the response lists: `!run`, `!schedule`, `!tasks`, `!cancel`,
+   `!pause`, `!resume`, `!help`
+4. Confirm the user message appears as `.log-entry` with author "You" and
+   the bot reply as `.log-entry.outgoing` with author "Bot"
+
+### Phase L3: Test `!tasks` in local chat
+
+1. Send `!tasks` via the chat input
+2. `wait_for` either `No tasks.` or a list with status icons
+3. If tasks exist, verify each line includes a status icon
+   (⏰/✅/▶/⏳/⏸/❌) and a task id
+
+### Phase L4: Test free-form chat (CDP-free task)
+
+1. Send `what is 2+2 — answer with just the number` via the chat input
+2. `take_snapshot` — verify the typing indicator (`#chatTyping`) appears
+3. Wait for typing to disappear and a bot reply containing `4`
+4. `evaluate_script` IndexedDB query (same as Phase 4 step 5) — verify
+   the most recent task has `channelId: 'local:ui'`, `status: 'completed'`,
+   `runCount: 1`
+
+### Phase L5: Test reply-threaded continuation
+
+1. Hover the bot's last `.log-entry.outgoing` — `.reply-btn` becomes visible
+2. `click` the reply button
+3. Verify `#chatReplyBanner` is visible with a preview of the bot message
+4. Send `and times 3?` via the chat input
+5. Wait for a bot reply containing `12`
+6. `evaluate_script` — verify the new exchange continued the same task
+   (same task id, `runCount` incremented), not a new task
+
+### Phase L6: Test `!schedule` and `!cancel` in local chat
+
+1. Send `!schedule 1m what is 5+5 — answer with just the number`
+2. `wait_for` text `Scheduled task` containing a task id
+3. Note the task id (extract from the bot reply)
+4. `evaluate_script` — verify task has
+   `schedule: { type: 'every', intervalMs: 60000 }` and
+   `channelId: 'local:ui'`
+5. Wait for the first run (~30–60s) — bot reply with `10` appears
+6. Send `!cancel <id>` — verify response says `Cancelled task <id>`
+7. `evaluate_script` — verify `status: 'failed'`,
+   `lastError: 'Cancelled by user'`
+
+## Monitor Feature Tests
+
+The Monitor panel (#monitorPanel, toggled by `#monitorPanelBtn`) lists
+all active agents and watches. Watch tasks (`type: 'monitor'`) poll a
+Chrome tab's DOM and fire the planner only when content changes.
+`monitor.js` builds a tree-aware unified diff of the DOM between polls.
+
+Notes:
+- Creating a real watch requires the extension (it calls `fetchWebPage`),
+  so these tests need the extension connected and a CDP-free polling
+  scenario. CDP being occupied by chrome-devtools-mcp prevents the
+  extension from clicking/typing — but `fetchWebPage` does not need
+  CDP page-action access, so polling works.
+- The monitor tick runs every 2s; warm-up absorbs the first 2 polls,
+  so real triggers fire from poll 3 onward (see monitor.js).
+
+### Phase M1: Verify Monitor panel renders
+
+1. `select_page` bot page (with `bringToFront: true`)
+2. `click` `#monitorPanelBtn`
+3. `take_snapshot` — verify `#monitorPanel` is visible, `#chatPanel` is
+   hidden, and the panel shows either the empty state
+   (`.agent-empty`: "No active agents or watches…") or one or more
+   `.agent-row` entries
+4. `list_console_messages` — confirm `[task-manager] monitor tick started`
+   appeared at boot
+
+### Phase M2: Active task appears in Monitor
+
+1. From the chat panel, send `!schedule 2m what is 7+7 — answer with just the number`
+2. `click` `#monitorPanelBtn`
+3. `take_snapshot` — verify a `.agent-row` exists with:
+   - `.agent-row__label` containing the prompt preview
+   - `.agent-dot--running`, `--queued`, `--waiting`, or `--paused` class
+   - A meta line including `Scheduled · every 2m` (and `next in …` once
+     the first run completes)
+4. Verify a `data-action="cancel"` button is present on the row
+
+### Phase M3: Pause / Resume / Cancel actions
+
+1. With the scheduled task from M2 visible in the Monitor list, wait for
+   its first run to complete (status reaches `waiting`)
+2. `click` the `Pause` button on its row
+3. `take_snapshot` — verify the dot becomes `.agent-dot--paused` and the
+   `Resume` button replaces `Pause`
+4. `evaluate_script` — verify task `status: 'paused'` in IndexedDB
+5. `click` `Resume` — verify dot returns to `.agent-dot--waiting` and
+   `nextRunAt` is set
+6. `click` the `✕` cancel button — verify the row disappears within 3s
+   (the panel polls every 3s) and IndexedDB shows `status: 'failed'`,
+   `lastError: 'Cancelled by user'`
+
+### Phase M4: Create a watch on a live page
+
+1. `new_page` to `https://example.com` — keep this tab open
+2. `evaluate_script` on the bot page to read the example.com tab id from
+   `chrome.tabs.query` is not available; instead use the chat to instruct
+   the bot. Switch to the bot page and send via local chat:
+   `watch this tab and tell me if anything changes` (the planner picks
+   the active extension tab — example.com)
+3. Wait for the bot to acknowledge with a `Watching …` reply
+4. `click` `#monitorPanelBtn` on the bot page
+5. `take_snapshot` — verify a row exists with:
+   - `.agent-dot--watching` class (purple, animated)
+   - Meta line beginning with `Watch · polls every …`
+6. `evaluate_script` IndexedDB — verify task has `type: 'monitor'`,
+   `status: 'waiting'`, and `config.tabId` set
+
+### Phase M5: Watch fires on DOM change
+
+1. With the example.com watch from M4 active, switch to the example.com
+   tab and `evaluate_script`:
+   ```js
+   () => { document.querySelector('h1').textContent = 'Changed Heading'; return true; }
+   ```
+2. Switch to the bot page; wait ~10s for two more poll cycles to clear
+   warm-up and detect the change
+3. `list_console_messages` — confirm a `[planner]` log fired for the
+   monitor task (planner invoked because diff was non-empty)
+4. Verify a bot reply appears in the chat feed mentioning the change
+5. `evaluate_script` — verify the monitor task `runCount` incremented and
+   `lastRunAt` is recent
+
+### Phase M6: Cancel the watch
+
+1. In the Monitor panel, click `✕` on the watch row
+2. `take_snapshot` — verify the row is gone
+3. `evaluate_script` — verify monitor task `status: 'failed'`,
+   `lastError: 'Cancelled by user'`
+4. Confirm no further poll log lines for this task id
+
 ## Cleanup
 
 After testing, cancel/remove any remaining scheduled tasks:
