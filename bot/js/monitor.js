@@ -36,10 +36,20 @@ function hashString(str) {
 //               children have changed but it's "the same node."
 //
 // Limitations:
-// - Attribute-only changes (class, aria-*, data-* other than title/value) are
-//   not in either hash, so they won't surface in the diff.
+// - Styling/bookkeeping attribute changes (class, style, data-*, id) are not
+//   in either hash, so they won't surface in the diff. This is intentional —
+//   they churn on hover/animation/theme and would create false fires.
 // - Two siblings with identical content collapse to one hash, so their order
 //   isn't distinguishable to the matcher.
+
+// Attributes folded into selfHash because they carry semantic identity, not
+// styling. A change here means the node's "what" changed (link target, image
+// source, form-control state) even when its visible text didn't.
+const SEMANTIC_ATTRS = [
+  'href', 'src', 'alt', 'aria-label', 'role',
+  'name', 'type', 'placeholder',
+  'checked', 'selected', 'disabled',
+];
 
 function calculateHashes(node) {
   if (!node) return;
@@ -48,7 +58,9 @@ function calculateHashes(node) {
     node.selfHash = node.hash;
     return;
   }
-  node.selfHash = hashString([node.tag || '', node.title || '', node.value || ''].join('|'));
+  const attrs = node.attributes || {};
+  const attrParts = SEMANTIC_ATTRS.map(a => `${a}=${attrs[a] ?? ''}`);
+  node.selfHash = hashString([node.tag || '', node.title || '', node.value || '', ...attrParts].join('|'));
   const parts = [node.selfHash];
   for (const child of (node.children ?? [])) {
     calculateHashes(child);
@@ -225,7 +237,7 @@ function diffChildren(curKids, prevKids, indent, out) {
   }
 }
 
-function unifiedDiff(cur, prev) {
+export function unifiedDiff(cur, prev) {
   if (!prev) return cur ? prettyPrint(cur).map(l => '+' + l).join('\n') : '';
   if (!cur)  return prettyPrint(prev).map(l => '-' + l).join('\n');
   calculateHashes(cur);
