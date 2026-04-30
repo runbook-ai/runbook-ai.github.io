@@ -19,11 +19,11 @@ export const LOCAL_CHANNEL_ID = 'local:ui';
 
 // Strip inline-code backticks and quotes that users often paste in along with
 // task ids copied from !tasks output (where ids are rendered as `xxxxx`).
-function normalizeId(raw) {
+export function normalizeId(raw) {
   return (raw ?? '').trim().replace(/^[`'"]+|[`'"]+$/g, '');
 }
 
-function parseInterval(str) {
+export function parseInterval(str) {
   const m = str.match(/^(\d+(?:\.\d+)?)\s*(s|m|h|d)$/i);
   if (!m) return null;
   const n = parseFloat(m[1]);
@@ -32,7 +32,7 @@ function parseInterval(str) {
   return Math.round(n * multipliers[unit]);
 }
 
-function formatMs(ms) {
+export function formatMs(ms) {
   if (ms >= 86_400_000) return (ms / 86_400_000).toFixed(1).replace(/\.0$/, '') + 'd';
   if (ms >= 3_600_000)  return (ms / 3_600_000).toFixed(1).replace(/\.0$/, '') + 'h';
   if (ms >= 60_000)     return (ms / 60_000).toFixed(1).replace(/\.0$/, '') + 'm';

@@ -10,7 +10,7 @@ import { cancelTask, pauseTask, resumeTask } from './task-manager.js';
 
 // ── Time formatting ───────────────────────────────────────────────────────────
 
-function formatMs(ms) {
+export function formatMs(ms) {
   if (!ms || ms < 0) return '?';
   if (ms >= 86_400_000) return Math.floor(ms / 86_400_000) + 'd';
   if (ms >= 3_600_000)  return Math.floor(ms / 3_600_000)  + 'h';
@@ -18,14 +18,14 @@ function formatMs(ms) {
   return Math.floor(ms / 1000) + 's';
 }
 
-function timeAgo(isoString) {
+export function timeAgo(isoString) {
   if (!isoString) return '';
   const ms = Date.now() - new Date(isoString).getTime();
   if (ms < 5000) return 'just now';
   return formatMs(ms) + ' ago';
 }
 
-function timeUntil(isoString) {
+export function timeUntil(isoString) {
   if (!isoString) return '';
   const ms = new Date(isoString).getTime() - Date.now();
   if (ms <= 0) return 'now';
@@ -36,7 +36,7 @@ function timeUntil(isoString) {
 
 const STATUS_ORDER = { running: 0, queued: 1, watching: 2, waiting: 3, paused: 4 };
 
-function sortKey(task) {
+export function sortKey(task) {
   if (task.type === 'monitor' && task.status === 'waiting') return STATUS_ORDER.watching;
   return STATUS_ORDER[task.status] ?? 5;
 }
@@ -52,7 +52,7 @@ async function loadAgents() {
 
 // ── Row HTML ──────────────────────────────────────────────────────────────────
 
-function dotClass(task) {
+export function dotClass(task) {
   if (task.status === 'running')                               return 'agent-dot--running';
   if (task.status === 'queued')                                return 'agent-dot--queued';
   if (task.type === 'monitor' && task.status === 'waiting')    return 'agent-dot--watching';
@@ -60,7 +60,7 @@ function dotClass(task) {
   return 'agent-dot--paused';
 }
 
-function line2Text(task) {
+export function line2Text(task) {
   const parts = [];
   if (task.type === 'monitor') {
     parts.push('Watch');
