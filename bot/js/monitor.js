@@ -231,12 +231,26 @@ function diffChildren(curKids, prevKids, indent, out) {
   // Phase 2: match remaining items by first-available (no preference).
   // This prevents a new item (no overlap with any prev) from stealing
   // a slot that a reordered existing item would have matched better.
+
+  // Collect all descendant hashes up to a given depth for overlap scoring.
+  // Deeper scoring handles cases where direct children differ but deeper
+  // structure (avatar, name, channel) is shared — common in list reordering.
+  function collectDescendantHashes(node, depth, results) {
+    if (!results) results = new Set();
+    if (depth <= 0 || !node) return results;
+    if (node.hash) results.add(node.hash);
+    for (const c of (node.children || [])) {
+      collectDescendantHashes(c, depth - 1, results);
+    }
+    return results;
+  }
+
   function scoreSelfHashMatch(curChild, prevIdx) {
-    const curChildHashes = new Set(
-      (curChild.children ?? []).map(c => c.hash).filter(Boolean));
+    const curHashes = collectDescendantHashes(curChild, 4);
     let score = 0;
-    for (const pc of (prevKids[prevIdx].children ?? [])) {
-      if (pc.hash && curChildHashes.has(pc.hash)) score++;
+    const prevHashes = collectDescendantHashes(prevKids[prevIdx], 4);
+    for (const h of prevHashes) {
+      if (curHashes.has(h)) score++;
     }
     return score;
   }
