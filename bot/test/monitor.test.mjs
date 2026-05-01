@@ -205,3 +205,125 @@ test('runMonitorPoll: post-warmup with no change returns []', async () => {
   assert.deepEqual(await runMonitorPoll(task), []);
   setActionRunner(null);
 });
+
+// ── Order-proof matching tests ──────────────────────────────────────────────
+
+function makeItem(name, avatarSrc, timestamp, message) {
+  return mk('div', {},
+    mk('div', {},
+      mk('div', {}, mk('img', { src: avatarSrc })),
+      mk('div', {}, txt(name)),
+      mk('span', {}, txt(timestamp)),
+    ),
+    mk('div', {}, txt(message)),
+  );
+}
+
+function wrap(items) {
+  return mk('body', {}, mk('div', {}, ...items));
+}
+
+function countPrefixed(d, prefix) {
+  if (!d) return 0;
+  return d.split('\n').filter(l => l.startsWith(prefix)).length;
+}
+
+test('swap: reordered items produce only timestamp diffs', () => {
+  const prev = wrap([
+    makeItem('Alice', 'alice.png', '5 mins', 'Hello'),
+    makeItem('Bob', 'bob.png', '10 mins', 'World'),
+  ]);
+  const cur = wrap([
+    makeItem('Bob', 'bob.png', '11 mins', 'World'),
+    makeItem('Alice', 'alice.png', '6 mins', 'Hello'),
+  ]);
+  const d = diff(cur, prev);
+  assert.ok(!hasAdd(d, 'Alice'), 'Alice not in + lines');
+  assert.ok(!hasRem(d, 'Alice'), 'Alice not in - lines');
+  assert.ok(!hasAdd(d, 'Bob'), 'Bob not in + lines');
+  assert.ok(!hasRem(d, 'Bob'), 'Bob not in - lines');
+  assert.ok(countPrefixed(d, '+') <= 4, `swap: added ≤ 4 (got ${countPrefixed(d, '+')})`);
+  assert.ok(countPrefixed(d, '-') <= 4, `swap: removed ≤ 4 (got ${countPrefixed(d, '-')})`);
+});
+
+test('new item added at top with reorder', () => {
+  const prev = wrap([
+    makeItem('Alice', 'alice.png', '5 mins', 'Hello'),
+    makeItem('Bob', 'bob.png', '10 mins', 'World'),
+  ]);
+  const cur = wrap([
+    makeItem('Charlie', 'charlie.png', '1 min', 'New message'),
+    makeItem('Alice', 'alice.png', '6 mins', 'Hello'),
+    makeItem('Bob', 'bob.png', '11 mins', 'World'),
+  ]);
+  const d = diff(cur, prev);
+  assert.ok(hasAdd(d, 'Charlie'), 'Charlie appears as added');
+  assert.ok(hasAdd(d, 'New message'), 'New message appears');
+  assert.ok(!hasAdd(d, 'Alice'), 'Alice not shown as added');
+  assert.ok(!hasRem(d, 'Alice'), 'Alice not shown as removed');
+});
+
+test('item removed from list', () => {
+  const prev = wrap([
+    makeItem('Alice', 'alice.png', '5 mins', 'Hello'),
+    makeItem('Bob', 'bob.png', '10 mins', 'World'),
+  ]);
+  const cur = wrap([
+    makeItem('Bob', 'bob.png', '11 mins', 'World'),
+  ]);
+  const d = diff(cur, prev);
+  assert.ok(hasRem(d, 'Alice'), 'Alice shown as removed');
+  assert.ok(!hasAdd(d, 'Bob'), 'Bob not shown as added');
+});
+
+test('content change with reorder: only changed text in diff', () => {
+  const prev = wrap([
+    makeItem('Alice', 'alice.png', '5 mins', 'Old message'),
+    makeItem('Bob', 'bob.png', '10 mins', 'World'),
+  ]);
+  const cur = wrap([
+    makeItem('Bob', 'bob.png', '11 mins', 'World'),
+    makeItem('Alice', 'alice.png', '6 mins', 'New reply in thread'),
+  ]);
+  const d = diff(cur, prev);
+  assert.ok(hasAdd(d, 'New reply in thread'), 'New content appears');
+  assert.ok(hasRem(d, 'Old message'), 'Old content shown as removed');
+  assert.ok(!hasAdd(d, 'Bob'), 'Bob not in + lines');
+  assert.ok(!hasRem(d, 'Bob'), 'Bob not in - lines');
+});
+
+test('new item + reorder + content change combined', () => {
+  const prev = wrap([
+    makeItem('Alice', 'alice.png', '5 mins', 'Hello'),
+    makeItem('Bob', 'bob.png', '10 mins', 'World'),
+    makeItem('Charlie', 'charlie.png', '15 mins', 'Old msg'),
+  ]);
+  const cur = wrap([
+    makeItem('Diana', 'diana.png', '1 min', 'Brand new'),
+    makeItem('Charlie', 'charlie.png', '16 mins', 'Updated msg'),
+    makeItem('Bob', 'bob.png', '11 mins', 'World'),
+    makeItem('Alice', 'alice.png', '6 mins', 'Hello'),
+  ]);
+  const d = diff(cur, prev);
+  assert.ok(hasAdd(d, 'Diana'), 'Diana (new) appears');
+  assert.ok(hasAdd(d, 'Brand new'), 'New message appears');
+  assert.ok(hasAdd(d, 'Updated msg'), 'Updated content appears');
+  assert.ok(!hasAdd(d, 'Alice'), 'Alice not in + lines');
+  assert.ok(!hasRem(d, 'Alice'), 'Alice not in - lines');
+  assert.ok(!hasAdd(d, 'Bob'), 'Bob not in + lines');
+  assert.ok(!hasRem(d, 'Bob'), 'Bob not in - lines');
+});
+
+test('timestamp-only changes produce minimal diff', () => {
+  const prev = wrap([
+    makeItem('Alice', 'alice.png', '5 mins', 'Hello'),
+    makeItem('Bob', 'bob.png', '10 mins', 'World'),
+  ]);
+  const cur = wrap([
+    makeItem('Alice', 'alice.png', '6 mins', 'Hello'),
+    makeItem('Bob', 'bob.png', '11 mins', 'World'),
+  ]);
+  const d = diff(cur, prev);
+  assert.equal(countPrefixed(d, '+'), 2, 'exactly 2 added lines');
+  assert.equal(countPrefixed(d, '-'), 2, 'exactly 2 removed lines');
+});
