@@ -226,11 +226,71 @@ function diffChildren(curKids, prevKids, indent, out) {
     return -1;
   }
 
-  for (const c of curKids) {
-    let i = c.hash !== undefined ? take(prevByFull, c.hash) : -1;
-    if (i < 0 && c.selfHash !== undefined) i = take(prevBySelf, c.selfHash);
-    if (i >= 0) emitUnified(c, prevKids[i], indent, out);
-    else        emitAll(c, '+', indent, out);
+  // Two-phase selfHash matching to handle reordered items correctly.
+  // Phase 1: match items that have child-hash overlap (confident matches).
+  // Phase 2: match remaining items by first-available (no preference).
+  // This prevents a new item (no overlap with any prev) from stealing
+  // a slot that a reordered existing item would have matched better.
+  function scoreSelfHashMatch(curChild, prevIdx) {
+    const curChildHashes = new Set(
+      (curChild.children ?? []).map(c => c.hash).filter(Boolean));
+    let score = 0;
+    for (const pc of (prevKids[prevIdx].children ?? [])) {
+      if (pc.hash && curChildHashes.has(pc.hash)) score++;
+    }
+    return score;
+  }
+
+  // Phase 1: fullHash exact matches
+  const paired = new Array(curKids.length).fill(-1);
+  for (let ci = 0; ci < curKids.length; ci++) {
+    const c = curKids[ci];
+    if (c.hash !== undefined) {
+      const i = take(prevByFull, c.hash);
+      if (i >= 0) paired[ci] = i;
+    }
+  }
+
+  // Phase 2: selfHash matches — confident first (score > 0), then leftovers
+  const needsSelfMatch = [];
+  for (let ci = 0; ci < curKids.length; ci++) {
+    if (paired[ci] >= 0) continue;
+    const c = curKids[ci];
+    if (c.selfHash === undefined) continue;
+    const list = prevBySelf.get(c.selfHash);
+    if (!list) continue;
+    const candidates = list.filter(i => !used.has(i));
+    if (candidates.length === 0) continue;
+    // Find best scoring candidate
+    let bestIdx = -1, bestScore = -1;
+    for (const i of candidates) {
+      const score = scoreSelfHashMatch(c, i);
+      if (score > bestScore) { bestScore = score; bestIdx = i; }
+    }
+    needsSelfMatch.push({ ci, bestIdx, bestScore });
+  }
+  // Sort by score descending — confident matches first
+  needsSelfMatch.sort((a, b) => b.bestScore - a.bestScore);
+  for (const { ci, bestIdx, bestScore } of needsSelfMatch) {
+    if (used.has(bestIdx)) {
+      // Best candidate was taken — find next available
+      const c = curKids[ci];
+      const list = prevBySelf.get(c.selfHash);
+      if (list) {
+        for (const i of list) {
+          if (!used.has(i)) { used.add(i); paired[ci] = i; break; }
+        }
+      }
+    } else {
+      used.add(bestIdx);
+      paired[ci] = bestIdx;
+    }
+  }
+
+  // Emit results
+  for (let ci = 0; ci < curKids.length; ci++) {
+    if (paired[ci] >= 0) emitUnified(curKids[ci], prevKids[paired[ci]], indent, out);
+    else                 emitAll(curKids[ci], '+', indent, out);
   }
   for (let i = 0; i < prevKids.length; i++) {
     if (!used.has(i)) emitAll(prevKids[i], '-', indent, out);
