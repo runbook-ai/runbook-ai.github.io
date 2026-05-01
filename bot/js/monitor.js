@@ -235,20 +235,28 @@ function diffChildren(curKids, prevKids, indent, out) {
   // Collect all descendant hashes up to a given depth for overlap scoring.
   // Deeper scoring handles cases where direct children differ but deeper
   // structure (avatar, name, channel) is shared — common in list reordering.
-  function collectDescendantHashes(node, depth, results) {
-    if (!results) results = new Set();
-    if (depth <= 0 || !node) return results;
+  const _hashCache = new Map();
+  function collectDescendantHashes(node, depth) {
+    if (!node) return new Set();
+    const cached = _hashCache.get(node);
+    if (cached) return cached;
+    const results = new Set();
     if (node.hash) results.add(node.hash);
-    for (const c of (node.children || [])) {
-      collectDescendantHashes(c, depth - 1, results);
+    if (depth > 0) {
+      for (const c of (node.children || [])) {
+        for (const h of collectDescendantHashes(c, depth - 1)) {
+          results.add(h);
+        }
+      }
     }
+    _hashCache.set(node, results);
     return results;
   }
 
   function scoreSelfHashMatch(curChild, prevIdx) {
-    const curHashes = collectDescendantHashes(curChild, 4);
+    const curHashes = collectDescendantHashes(curChild, 20);
     let score = 0;
-    const prevHashes = collectDescendantHashes(prevKids[prevIdx], 4);
+    const prevHashes = collectDescendantHashes(prevKids[prevIdx], 20);
     for (const h of prevHashes) {
       if (curHashes.has(h)) score++;
     }
