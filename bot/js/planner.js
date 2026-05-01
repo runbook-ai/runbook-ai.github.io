@@ -79,7 +79,7 @@ const ACT_TIMEOUT_MS = 300_000; // 5 minutes max per browse step
  * Browser action — locks the extension for the duration.
  * Returns { text, files } where files is a map of savedFiles from taskState.
  */
-async function act(prompt, savedFiles = {}) {
+async function act(prompt, savedFiles = {}, excludeTabIds = []) {
   const s = loadSettings();
 
   // Build config and initial taskState — bundled into one call so config
@@ -92,9 +92,13 @@ async function act(prompt, savedFiles = {}) {
     returnTaskState: true,
   };
 
-  const initialTaskState = Object.keys(savedFiles).length > 0
-    ? { savedFiles }
-    : null;
+  const initialTaskState = {};
+  if (Object.keys(savedFiles).length > 0) {
+    initialTaskState.savedFiles = savedFiles;
+  }
+  if (excludeTabIds.length > 0) {
+    initialTaskState.excludeTabIds = excludeTabIds;
+  }
 
   // Race between the headless task and a timeout.
   // We wrap in a manually-controlled promise so we can reject it even if
@@ -633,7 +637,10 @@ export async function runPlan(task) {
             browseCount++;
             console.log('[planner] browse:', args.prompt.slice(0, 100));
             try {
-              const browseResult = await act(args.prompt, collectedFiles);
+              // Exclude the monitored tab (if any) so browse doesn't interact with it
+              const monitorTabId = task.config?.tabId;
+              const excludeTabIds = monitorTabId ? [monitorTabId] : [];
+              const browseResult = await act(args.prompt, collectedFiles, excludeTabIds);
               toolResult = { success: true, result: browseResult.text };
               // Collect any files downloaded during this browse step
               if (browseResult.files && Object.keys(browseResult.files).length > 0) {
