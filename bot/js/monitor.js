@@ -87,7 +87,10 @@ function escapeHtml(s) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\t/g, '\\t');
 }
 
 function openTag(node) {
@@ -133,78 +136,75 @@ function prettyPrint(node, indent = '', out = []) {
 }
 
 // ── Tree-aware unified diff ──────────────────────────────────────────────────
-// Walks `cur` and `prev` in parallel and emits prefixed lines (' ', '+', '-'):
+// Two phases:
+//   1. buildDiff(cur, prev) → DiffNode tree (or null if nothing changed).
+//   2. renderDiff(node) → prefixed lines (' ', '+', '-').
 //
-// - cur === null, prev exists       → entire prev subtree removed (-).
-// - prev === null, cur exists       → entire cur subtree added (+).
-// - both texts equal                → ' ' (one line).
-// - both texts differ               → '-' old / '+' new.
-// - both elements, fullHash equal   → ' ' for the whole collapsed subtree.
-// - both elements, selfHash equal   → opening/closing as ' ' (the tag itself
-//                                     is unchanged), recurse into children
-//                                     pairwise so only changed kids get +/-.
-// - both elements, selfHash differs → tag identity itself changed; emit prev
-//                                     subtree as '-' and cur subtree as '+'.
+// Splitting the phases lets us add context-line expansion later without
+// touching the matching logic.
 //
-// Children alignment: for each cur child, prefer a not-yet-paired prev child
-// with the same fullHash (perfect match), else one with the same selfHash
-// (structural match). Unpaired cur children → added; unpaired prev children →
-// removed.
+// DiffNode kinds:
+//   { kind: 'added',    node }            — cur subtree (entire '+').
+//   { kind: 'removed',  node }            — prev subtree (entire '-').
+//   { kind: 'replace',  prev, cur }       — selfHash mismatch or leaf-vs-element;
+//                                           render whole prev '-' then whole cur '+'.
+//   { kind: 'wrapper',  node, children }  — same selfHash, descendants changed;
+//                                           render open/close as ' ' context with
+//                                           children diffs in between. `node` is
+//                                           cur (carries open tag + textarea value).
+//
+// Identical subtrees and identical text leaves return null (no DiffNode), and
+// a wrapper whose children all return null also collapses to null — same as
+// the old "tentative push + rollback" behavior.
+//
+// Children alignment inside a wrapper (two-phase, order-proof):
+//   Phase 1: pair every cur child with a prev child sharing fullHash (perfect
+//            match — identical subtree).
+//   Phase 2: for each unpaired cur child with a selfHash bucket in prev, score
+//            each available candidate by descendant-hash overlap (depth 20,
+//            memoized). Commit the highest-scoring pair first; if its best
+//            candidate was taken by an earlier commit, fall back to the next
+//            available index in prev order.
+//
+// Why two-phase: when several prev siblings share a selfHash (e.g. a list of
+// items with the same tag), a naive first-available matcher mis-pairs across
+// reorders. Confident-first prevents a brand-new item (no descendant overlap
+// with anything) from stealing a slot that a reordered existing item would
+// have matched on shared sub-elements (avatars, names, channel labels).
+//
+// Unpaired cur → 'added' in cur order. Unpaired prev → 'removed' appended at
+// the end of the children list in prev order, matching the old emission order.
 
 function emitAll(node, prefix, indent, out) {
   for (const line of prettyPrint(node, indent)) out.push(prefix + line);
 }
 
-// Returns true if it pushed any output (so callers can drop empty wrappers).
-function emitUnified(cur, prev, indent, out) {
-  if (!cur && !prev) return false;
-  if (!prev) { emitAll(cur, '+', indent, out); return true; }
-  if (!cur)  { emitAll(prev, '-', indent, out); return true; }
+function buildDiff(cur, prev) {
+  if (!cur && !prev) return null;
+  if (!prev) return { kind: 'added', node: cur };
+  if (!cur)  return { kind: 'removed', node: prev };
 
-  // Text leaves
-  if (cur.text !== undefined && prev.text !== undefined) {
-    if (cur.text === prev.text) return false; // skip unchanged text — no context
-    out.push('-' + indent + escapeHtml(prev.text));
-    out.push('+' + indent + escapeHtml(cur.text));
-    return true;
-  }
-  // Mismatched leaf vs element
+  // Identical text leaves collapse silently. Anything else where at least one
+  // side is a text leaf — including two text leaves with different content —
+  // falls through to 'replace', which renders them as whole '-' / '+' lines.
+  if (cur.text !== undefined && prev.text !== undefined && cur.text === prev.text) return null;
   if (cur.text !== undefined || prev.text !== undefined) {
-    emitAll(prev, '-', indent, out);
-    emitAll(cur, '+', indent, out);
-    return true;
+    return { kind: 'replace', prev, cur };
   }
 
-  // Identical subtree — skip entirely (no context spam).
-  if (cur.hash === prev.hash) return false;
+  if (cur.hash === prev.hash) return null;
 
-  // Same tag identity, children differ — emit open/close as context only if a
-  // descendant actually changes. Tentatively push the open tag and roll back
-  // if children emit nothing.
   if (cur.selfHash === prev.selfHash) {
-    const tag = cur.tag || 'div';
-    const start = out.length;
-    out.push(' ' + indent + openTag(cur) + '>');
-    if (cur.value && tag === 'textarea') out.push(' ' + indent + '  ' + escapeHtml(cur.value));
-    const headerLen = out.length - start;
-    diffChildren(cur.children ?? [], prev.children ?? [], indent + '  ', out);
-    if (out.length === start + headerLen) {
-      out.length = start; // no real changes inside — roll back
-      return false;
-    }
-    out.push(' ' + indent + `</${tag}>`);
-    return true;
+    const children = buildDiffChildren(cur.children ?? [], prev.children ?? []);
+    if (children.length === 0) return null; // no real changes inside — drop wrapper
+    return { kind: 'wrapper', node: cur, children };
   }
 
-  // Tag identity itself differs — treat the whole pair as remove + add.
-  emitAll(prev, '-', indent, out);
-  emitAll(cur, '+', indent, out);
-  return true;
+  return { kind: 'replace', prev, cur };
 }
 
-function diffChildren(curKids, prevKids, indent, out) {
-  // Index prev by fullHash and selfHash for O(1) lookup; track which slots
-  // have been paired so each prev child is matched at most once.
+function buildDiffChildren(curKids, prevKids) {
+  // Index prev by fullHash and selfHash for O(1) lookup.
   const prevByFull = new Map();
   const prevBySelf = new Map();
   for (let i = 0; i < prevKids.length; i++) {
@@ -226,15 +226,10 @@ function diffChildren(curKids, prevKids, indent, out) {
     return -1;
   }
 
-  // Two-phase selfHash matching to handle reordered items correctly.
-  // Phase 1: match items that have child-hash overlap (confident matches).
-  // Phase 2: match remaining items by first-available (no preference).
-  // This prevents a new item (no overlap with any prev) from stealing
-  // a slot that a reordered existing item would have matched better.
-
-  // Collect all descendant hashes up to a given depth for overlap scoring.
-  // Deeper scoring handles cases where direct children differ but deeper
-  // structure (avatar, name, channel) is shared — common in list reordering.
+  // Memoized descendant-hash collection for overlap scoring. Deeper than direct
+  // children so list items whose wrapper-divs all hash uniquely still find
+  // overlap on sub-elements (avatar, name, channel). Depth 20 is empirically
+  // sufficient for Slack/Gmail-style nested rows.
   const _hashCache = new Map();
   function collectDescendantHashes(node, depth) {
     if (!node) return new Set();
@@ -263,7 +258,7 @@ function diffChildren(curKids, prevKids, indent, out) {
     return score;
   }
 
-  // Phase 1: fullHash exact matches
+  // Phase 1: fullHash exact matches.
   const paired = new Array(curKids.length).fill(-1);
   for (let ci = 0; ci < curKids.length; ci++) {
     const c = curKids[ci];
@@ -273,7 +268,8 @@ function diffChildren(curKids, prevKids, indent, out) {
     }
   }
 
-  // Phase 2: selfHash matches — confident first (score > 0), then leftovers
+  // Phase 2: selfHash matches — score-best first, then fall back to next
+  // available if the best candidate was already taken by an earlier commit.
   const needsSelfMatch = [];
   for (let ci = 0; ci < curKids.length; ci++) {
     if (paired[ci] >= 0) continue;
@@ -283,7 +279,6 @@ function diffChildren(curKids, prevKids, indent, out) {
     if (!list) continue;
     const candidates = list.filter(i => !used.has(i));
     if (candidates.length === 0) continue;
-    // Find best scoring candidate
     let bestIdx = -1, bestScore = -1;
     for (const i of candidates) {
       const score = scoreSelfHashMatch(c, i);
@@ -291,11 +286,9 @@ function diffChildren(curKids, prevKids, indent, out) {
     }
     needsSelfMatch.push({ ci, bestIdx, bestScore });
   }
-  // Sort by score descending — confident matches first
   needsSelfMatch.sort((a, b) => b.bestScore - a.bestScore);
-  for (const { ci, bestIdx, bestScore } of needsSelfMatch) {
+  for (const { ci, bestIdx } of needsSelfMatch) {
     if (used.has(bestIdx)) {
-      // Best candidate was taken — find next available
       const c = curKids[ci];
       const list = prevBySelf.get(c.selfHash);
       if (list) {
@@ -309,13 +302,46 @@ function diffChildren(curKids, prevKids, indent, out) {
     }
   }
 
-  // Emit results
+  // Build DiffNodes: paired cur children in cur order, then unpaired prev
+  // tail in prev order. Skips paired children that recurse to null (identical).
+  const out = [];
   for (let ci = 0; ci < curKids.length; ci++) {
-    if (paired[ci] >= 0) emitUnified(curKids[ci], prevKids[paired[ci]], indent, out);
-    else                 emitAll(curKids[ci], '+', indent, out);
+    if (paired[ci] >= 0) {
+      const dn = buildDiff(curKids[ci], prevKids[paired[ci]]);
+      if (dn) out.push(dn);
+    } else {
+      out.push({ kind: 'added', node: curKids[ci] });
+    }
   }
   for (let i = 0; i < prevKids.length; i++) {
-    if (!used.has(i)) emitAll(prevKids[i], '-', indent, out);
+    if (!used.has(i)) out.push({ kind: 'removed', node: prevKids[i] });
+  }
+  return out;
+}
+
+function renderDiff(dn, indent, out) {
+  switch (dn.kind) {
+    case 'added':
+      emitAll(dn.node, '+', indent, out);
+      return;
+    case 'removed':
+      emitAll(dn.node, '-', indent, out);
+      return;
+    case 'replace':
+      emitAll(dn.prev, '-', indent, out);
+      emitAll(dn.cur, '+', indent, out);
+      return;
+    case 'wrapper': {
+      const node = dn.node;
+      const tag = node.tag || 'div';
+      out.push(' ' + indent + openTag(node) + '>');
+      if (node.value && tag === 'textarea') {
+        out.push(' ' + indent + '  ' + escapeHtml(node.value));
+      }
+      for (const c of dn.children) renderDiff(c, indent + '  ', out);
+      out.push(' ' + indent + `</${tag}>`);
+      return;
+    }
   }
 }
 
@@ -325,8 +351,10 @@ export function unifiedDiff(cur, prev) {
   calculateHashes(cur);
   calculateHashes(prev);
   if (cur.hash === prev.hash) return '';
+  const dn = buildDiff(cur, prev);
+  if (!dn) return '';
   const out = [];
-  emitUnified(cur, prev, '', out);
+  renderDiff(dn, '', out);
   return out.join('\n');
 }
 

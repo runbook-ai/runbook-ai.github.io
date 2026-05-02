@@ -164,6 +164,174 @@ test('removed child surfaces as -', () => {
   assert.ok(hasRem(d, 'two'));
 });
 
+// ── DiffNode kinds and combinations ─────────────────────────────────────────
+// These exercise the buildDiff/renderDiff paths directly: 'replace' (root tag
+// change, leaf-vs-element), 'wrapper' (with multiple changed children, nested,
+// rollback via reorder), textarea values, and the cur-paired-then-prev-tail
+// child ordering.
+
+test('replace at root: different root tag emits whole prev as - and whole cur as +', () => {
+  const prev = mk('body', {}, mk('p', {}, txt('hi')));
+  const cur  = mk('main', {}, mk('p', {}, txt('hi')));
+  const d = diff(cur, prev);
+  const lines = d.split('\n');
+  assert.ok(lines.every(l => l.startsWith('+') || l.startsWith('-')),
+    `expected only +/- lines (no wrapper context), got:\n${d}`);
+  assert.ok(hasRem(d, '<body'));
+  assert.ok(hasAdd(d, '<main'));
+});
+
+test('replace: top-level leaf-vs-element renders prev whole as -, cur whole as +', () => {
+  const prev = txt('hi');
+  const cur  = mk('p', {}, txt('hi'));
+  const d = diff(cur, prev);
+  const lines = d.split('\n');
+  assert.ok(lines.every(l => l[0] === '-' || l[0] === '+'),
+    `expected only +/- lines, got:\n${d}`);
+  const minusLines = lines.filter(l => l[0] === '-');
+  const plusLines  = lines.filter(l => l[0] === '+');
+  assert.equal(minusLines.length, 1, `prev text leaf should be one '-' line`);
+  assert.ok(minusLines[0].includes('hi'));
+  assert.equal(plusLines.length, 3, `cur <p>hi</p> should render as 3 '+' lines`);
+  assert.ok(plusLines[0].includes('<p'));
+  assert.ok(plusLines[1].includes('hi'));
+  assert.ok(plusLines[2].includes('</p>'));
+  assert.ok(d.indexOf('-') < d.indexOf('+'));
+});
+
+test('replace: top-level element-vs-leaf renders prev whole as -, cur whole as +', () => {
+  const prev = mk('p', {}, txt('hi'));
+  const cur  = txt('hi');
+  const d = diff(cur, prev);
+  const lines = d.split('\n');
+  const minusLines = lines.filter(l => l[0] === '-');
+  const plusLines  = lines.filter(l => l[0] === '+');
+  assert.equal(minusLines.length, 3);
+  assert.equal(plusLines.length, 1);
+  assert.ok(plusLines[0].includes('hi'));
+});
+
+test('top-level text-only diff renders as - / +', () => {
+  const d = diff(txt('world'), txt('hello'));
+  assert.equal(d, '-hello\n+world');
+});
+
+test('wrapper: open/close emitted as context, unchanged siblings dropped', () => {
+  const prev = mk('body', {}, mk('p', {}, txt('one')), mk('p', {}, txt('two')));
+  const cur  = mk('body', {}, mk('p', {}, txt('one')), mk('p', {}, txt('CHANGED')));
+  const d = diff(cur, prev);
+  const lines = d.split('\n');
+  assert.ok(lines[0].startsWith(' ') && lines[0].includes('<body'),
+    `body open should be ' '-context, got: ${lines[0]}`);
+  assert.ok(lines[lines.length - 1].startsWith(' ') && lines[lines.length - 1].includes('</body>'),
+    `body close should be ' '-context, got: ${lines[lines.length - 1]}`);
+  assert.ok(!d.includes('one'), `unchanged sibling 'one' must not appear, got:\n${d}`);
+  assert.ok(hasRem(d, 'two'));
+  assert.ok(hasAdd(d, 'CHANGED'));
+});
+
+test('wrapper: nested wrappers preserve ancestor-only context', () => {
+  const prev = mk('body', {}, mk('section', {}, mk('p', {}, txt('A'))));
+  const cur  = mk('body', {}, mk('section', {}, mk('p', {}, txt('B'))));
+  const d = diff(cur, prev);
+  const lines = d.split('\n');
+  assert.ok(lines[0].includes('<body') && lines[0].startsWith(' '));
+  assert.ok(lines[1].includes('<section') && lines[1].startsWith(' '));
+  assert.ok(lines[2].includes('<p') && lines[2].startsWith(' '));
+  assert.ok(lines.some(l => l.startsWith('+') && l.includes('B')));
+  assert.ok(lines.some(l => l.startsWith('-') && l.includes('A')));
+  assert.ok(lines.at(-3).includes('</p>'));
+  assert.ok(lines.at(-2).includes('</section>'));
+  assert.ok(lines.at(-1).includes('</body>'));
+});
+
+test('wrapper: cur-paired children before unpaired prev-tail removals', () => {
+  // Use distinct tags for added vs removed so neither pairs by selfHash with
+  // the other — added go to cur-order list, removed go to prev-tail.
+  const prev = mk('body', {},
+    mk('p', {}, txt('keep')),
+    mk('div', { class: 'a' }, txt('drop1')),
+    mk('div', { class: 'b' }, txt('drop2')),
+  );
+  const cur = mk('body', {},
+    mk('p', {}, txt('keep')),
+    mk('span', {}, txt('add1')),
+    mk('span', {}, txt('add2')),
+  );
+  const d = diff(cur, prev);
+  assert.ok(!d.includes('keep'));
+  assert.ok(d.indexOf('add1') < d.indexOf('add2'),  'cur additions in cur order');
+  assert.ok(d.indexOf('drop1') < d.indexOf('drop2'), 'prev-tail removals in prev order');
+  assert.ok(d.indexOf('add2') < d.indexOf('drop1'),
+    'all cur-order additions before prev-tail removals');
+});
+
+test('wrapper rollback: pure reorder of identical children → empty diff', () => {
+  // Each <p> pairs by fullHash with the matching <p> in prev — every child
+  // returns null, body wrapper has no children, rollback triggers.
+  const prev = mk('body', {}, mk('p', {}, txt('a')), mk('p', {}, txt('b')));
+  const cur  = mk('body', {}, mk('p', {}, txt('b')), mk('p', {}, txt('a')));
+  assert.equal(diff(cur, prev), '');
+});
+
+test('text leaves with different content under same wrapper become added + removed', () => {
+  // Inside child matching, text leaves only pair when content is identical
+  // (their hash and selfHash both equal hashString(text)), so a changed-text-
+  // in-same-position case becomes added(cur) + removed(prev) — adds in cur
+  // order first, then unpaired prev tail.
+  const prev = mk('body', {}, mk('p', {}, txt('hello')));
+  const cur  = mk('body', {}, mk('p', {}, txt('world')));
+  const d = diff(cur, prev);
+  const lines = d.split('\n');
+  assert.equal(lines.length, 6, `unexpected line count, got:\n${d}`);
+  assert.equal(lines[2][0], '+');
+  assert.equal(lines[3][0], '-');
+  assert.ok(lines[2].includes('world'));
+  assert.ok(lines[3].includes('hello'));
+});
+
+test('mixed: add + remove + content change in one wrapper', () => {
+  const prev = mk('body', {},
+    mk('p', {}, txt('keep')),
+    mk('p', {}, txt('change me')),
+    mk('div', {}, txt('to remove')),  // div tag → won't pair with span
+  );
+  const cur = mk('body', {},
+    mk('p', {}, txt('keep')),
+    mk('p', {}, txt('changed!')),
+    mk('span', {}, txt('newly added')),
+  );
+  const d = diff(cur, prev);
+  assert.ok(!d.includes('keep'));
+  assert.ok(hasRem(d, 'change me'));
+  assert.ok(hasAdd(d, 'changed!'));
+  assert.ok(hasAdd(d, 'newly added'));
+  assert.ok(hasRem(d, 'to remove'));
+});
+
+test('textarea value change surfaces as element replace', () => {
+  const ta = (v) => ({ tag: 'textarea', attributes: {}, value: v, children: [] });
+  const prev = mk('body', {}, ta('before'));
+  const cur  = mk('body', {}, ta('after'));
+  const d = diff(cur, prev);
+  assert.ok(hasAdd(d, 'after'),  `expected + with new value, got:\n${d}`);
+  assert.ok(hasRem(d, 'before'), `expected - with old value, got:\n${d}`);
+});
+
+test('wrapper: unchanged textarea value emitted as context line on inner change', () => {
+  // Pair the textareas by selfHash (same value), force a child-level change
+  // by adding an inner element. Verifies the hasTextareaValue ' '-context path.
+  const ta = (v, ...kids) => ({ tag: 'textarea', attributes: {}, value: v, children: kids });
+  const prev = mk('body', {}, ta('same', mk('span', {}, txt('a'))));
+  const cur  = mk('body', {}, ta('same', mk('span', {}, txt('b'))));
+  const d = diff(cur, prev);
+  const lines = d.split('\n');
+  assert.ok(lines.some(l => l.startsWith(' ') && l.includes('same')),
+    `expected ' '-context line with textarea value, got:\n${d}`);
+  assert.ok(hasAdd(d, 'b'));
+  assert.ok(hasRem(d, 'a'));
+});
+
 // ── runMonitorPoll with mocked fetchWebPage ─────────────────────────────────
 
 test('runMonitorPoll: baseline + warmup return [], post-warmup fires on change', async () => {
