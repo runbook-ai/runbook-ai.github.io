@@ -645,12 +645,16 @@ async function executeMonitorFire(task) {
     if (!task.config.instruction) task.config.instruction = instruction; // backfill for restore
     task.prompt =
       `${instruction}\n\n---\n\n` +
-      `The watched page${url ? ' (' + url + ')' : ''} changed. Below is a unified diff ` +
-      `produced by a content-hash DOM diff: lines starting with "-" are HTML present in the ` +
-      `prior snapshot but not the current one; lines starting with "+" are HTML present now ` +
-      `but not before; lines starting with " " (space) are unchanged structural context that ` +
-      `aligns the two sides. Each line is a single tag or text node, indented to reflect ` +
-      `nesting. Prefer to answer the user's instruction directly from this diff without ` +
+      `The watched page${url ? ' (' + url + ')' : ''} changed. Below is a focused diff ` +
+      `produced by a content-hash DOM diff and rendered in the same simplified-HTML format ` +
+      `you'd see from browse, but cropped to a token budget around the changed nodes. ` +
+      `Elements that were added carry data-diff="+", elements that were removed carry ` +
+      `data-diff="-", and elements without a data-diff attribute are unchanged structural ` +
+      `context that aligns the surrounding tree. Text-level changes are wrapped in ` +
+      `<span data-diff="+">…</span> or <span data-diff="-">…</span> so per-text additions ` +
+      `and removals are visible too. Off-screen changes are intentionally suppressed (the ` +
+      `viewport-cropped tree feeds the diff), so anything you see here was visible on the ` +
+      `live page. Prefer to answer the user's instruction directly from this diff without ` +
       `calling browse — it is usually sufficient for summarization, notification, and ` +
       `similar tasks. Only call browse if the instruction genuinely needs information that ` +
       `isn't in the diff (e.g., opening a full email body, following a link). If the change ` +
