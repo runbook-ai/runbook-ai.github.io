@@ -652,9 +652,9 @@ async function executeMonitorFire(task) {
       `data-diff="-", and elements without a data-diff attribute are unchanged structural ` +
       `context that aligns the surrounding tree. Text-level changes are wrapped in ` +
       `<span data-diff="+">…</span> or <span data-diff="-">…</span> so per-text additions ` +
-      `and removals are visible too. Off-screen changes are intentionally suppressed (the ` +
-      `viewport-cropped tree feeds the diff), so anything you see here was visible on the ` +
-      `live page. Prefer to answer the user's instruction directly from this diff without ` +
+      `and removals are visible too. The diff is biased toward viewport content via the ` +
+      `viewport-weighted crop that feeds it; off-screen changes can still appear when the ` +
+      `page is small enough to fit in budget. Prefer to answer the user's instruction directly from this diff without ` +
       `calling browse — it is usually sufficient for summarization, notification, and ` +
       `similar tasks. Only call browse if the instruction genuinely needs information that ` +
       `isn't in the diff (e.g., opening a full email body, following a link). If the change ` +
