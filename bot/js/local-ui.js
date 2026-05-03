@@ -104,6 +104,13 @@ function appendMessage(content, role, opts = {}) {
 
   meta.append(authorSpan, timeSpan);
 
+  if (opts.taskId) {
+    const idSpan = document.createElement('span');
+    idSpan.className = 'log-task-id';
+    idSpan.textContent = opts.taskId;
+    meta.appendChild(idSpan);
+  }
+
   const msgDiv = document.createElement('div');
   msgDiv.className = 'log-content';
 
