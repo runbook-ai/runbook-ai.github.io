@@ -82,5 +82,9 @@ export async function runMonitorPoll(task) {
   if (polls <= 2) return [];
 
   if (!snap.diff) return [];
-  return [{ text: snap.diff, source: snap.url || '' }];
+  return [{
+    text: snap.diff,
+    source: snap.url || '',
+    diffDom: snap.diffDom || undefined,
+  }];
 }

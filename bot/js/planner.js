@@ -36,7 +36,7 @@ export class UserCancelledError extends Error {
 }
 
 /** LLM reasoning with tool use — no browser lock, fast and cheap. */
-async function think(messages, tools) {
+async function think(messages, tools, opts) {
   const s = loadSettings();
   const freeConfig = s.freeApiKey
     ? { llmBaseUrl: 'https://llm.runbookai.net/v1', llmApiKey: 'free' }
@@ -46,7 +46,7 @@ async function think(messages, tools) {
   if (freeConfig) await extensionCall('setRemoteConfig', { config: freeConfig });
 
   try {
-    const args = { messages, tools, role: 'planner', timeout: 300000 };
+    const args = { messages, tools, role: 'planner', timeout: 300000, opts };
     for (let attempt = 0; attempt < 5; attempt++) {
       let resp;
       try {
@@ -609,8 +609,12 @@ export async function runPlan(task) {
     t.function.name !== 'run_native_agent' || nativeAgentOk
   );
 
+  const thinkOpts = task.logContext
+    ? { logContext: { taskId: task.logContext.taskId, runNumber: task.logContext.runNumber } }
+    : undefined;
+
   for (let step = 0; step < MAX_STEPS; step++) {
-    const resp = await think(messages, activeTools);
+    const resp = await think(messages, activeTools, thinkOpts);
 
     // LLM returned tool calls
     if (resp.toolCalls) {

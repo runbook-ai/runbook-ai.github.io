@@ -26,8 +26,10 @@
  */
 
 const DB_NAME    = 'runbookai_tasks';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const TASK_STORE = 'tasks';
+const RUN_STORE  = 'task-runs';
+const LLM_LOG_STORE = 'llm-logs';
 
 let dbPromise = null;
 
@@ -64,6 +66,17 @@ function openDB() {
           if (changed) cursor.update(task);
           cursor.continue();
         };
+      }
+      // v5: add task-runs and llm-logs stores
+      if (!db.objectStoreNames.contains(RUN_STORE)) {
+        const runStore = db.createObjectStore(RUN_STORE, { keyPath: 'id' });
+        runStore.createIndex('taskId', 'taskId', { unique: false });
+        runStore.createIndex('completedAt', 'completedAt', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(LLM_LOG_STORE)) {
+        const logStore = db.createObjectStore(LLM_LOG_STORE, { keyPath: 'id' });
+        logStore.createIndex('taskId', 'taskId', { unique: false });
+        logStore.createIndex('timestamp', 'timestamp', { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -192,4 +205,123 @@ export function createTaskRecord(overrides = {}) {
   };
 }
 
+// ── Task Runs (local history) ─────────────────────────────────────────────
 
+export async function putRun(run) {
+  const store = await tx(RUN_STORE, 'readwrite');
+  return new Promise((resolve, reject) => {
+    const req = store.put(run);
+    req.onsuccess = () => resolve(run);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getRun(id) {
+  const store = await tx(RUN_STORE, 'readonly');
+  return new Promise((resolve, reject) => {
+    const req = store.get(id);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getRunsByTaskId(taskId) {
+  const store = await tx(RUN_STORE, 'readonly');
+  const index = store.index('taskId');
+  return new Promise((resolve, reject) => {
+    const req = index.getAll(taskId);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteRun(id) {
+  const store = await tx(RUN_STORE, 'readwrite');
+  return new Promise((resolve, reject) => {
+    const req = store.delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteRunsOlderThan(isoDate) {
+  const store = await tx(RUN_STORE, 'readwrite');
+  const index = store.index('completedAt');
+  const range = IDBKeyRange.upperBound(isoDate);
+  return new Promise((resolve, reject) => {
+    let count = 0;
+    const req = index.openCursor(range);
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (!cursor) { resolve(count); return; }
+      cursor.delete();
+      count++;
+      cursor.continue();
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// ── LLM Logs (local history) ──────────────────────────────────────────────
+
+export async function putLlmLog(entry) {
+  const store = await tx(LLM_LOG_STORE, 'readwrite');
+  return new Promise((resolve, reject) => {
+    const req = store.put(entry);
+    req.onsuccess = () => resolve(entry);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getLlmLog(id) {
+  const store = await tx(LLM_LOG_STORE, 'readonly');
+  return new Promise((resolve, reject) => {
+    const req = store.get(id);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getLlmLogsByTaskId(taskId) {
+  const store = await tx(LLM_LOG_STORE, 'readonly');
+  if (taskId == null) {
+    return new Promise((resolve, reject) => {
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  const index = store.index('taskId');
+  return new Promise((resolve, reject) => {
+    const req = index.getAll(taskId);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteLlmLog(id) {
+  const store = await tx(LLM_LOG_STORE, 'readwrite');
+  return new Promise((resolve, reject) => {
+    const req = store.delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteLlmLogsOlderThan(isoDate) {
+  const store = await tx(LLM_LOG_STORE, 'readwrite');
+  const index = store.index('timestamp');
+  const range = IDBKeyRange.upperBound(isoDate);
+  return new Promise((resolve, reject) => {
+    let count = 0;
+    const req = index.openCursor(range);
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (!cursor) { resolve(count); return; }
+      cursor.delete();
+      count++;
+      cursor.continue();
+    };
+    req.onerror = () => reject(req.error);
+  });
+}

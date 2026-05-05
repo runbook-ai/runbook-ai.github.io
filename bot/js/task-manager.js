@@ -12,11 +12,34 @@ import {
   putTask, getTask, createTaskRecord,
   getTasksByStatus, getAllTasks, deleteTask,
   getChildTasks,
+  putRun, generateId,
 } from './task-store.js';
 import { computeNextRun, computeBackoff } from './cron.js';
 import { runPlan, UserCancelledError } from './planner.js';
 import { appendDailyMemory } from './memory-store.js';
 import { runMonitorPoll } from './monitor.js';
+
+// ── Task run snapshot ─────────────────────────────────────────────────────
+
+async function snapshotTaskRun(task) {
+  try {
+    const config = typeof window !== 'undefined' && window.getConfig
+      ? await window.getConfig()
+      : null;
+    if (!config?.enableLocalHistory) return;
+    const run = {
+      id: 'r_' + generateId(),
+      taskId: task.id,
+      runNumber: task.runCount,
+      completedAt: new Date().toISOString(),
+      status: task.lastError ? 'failed' : 'completed',
+      task: JSON.parse(JSON.stringify(task)),
+    };
+    await putRun(run);
+  } catch (err) {
+    console.warn('[task-manager] snapshotTaskRun failed:', err.message);
+  }
+}
 
 // ── Delivery callback ──────────────────────────────────────────────────────
 
@@ -172,6 +195,12 @@ async function executeTask(task) {
       }));
     }
 
+    // Set logContext for LLM log correlation
+    task.logContext = {
+      taskId: task.id,
+      runNumber: task.runCount,
+    };
+
     // Run through the planner
     const planResult = await runPlan(task);
 
@@ -249,6 +278,7 @@ async function executeTask(task) {
       task.nextRunAt = null;
     }
     await putTask(task);
+    await snapshotTaskRun(task);
 
     // If this child finished a run:
     // 1. If parent is still active (waiting), wake it when all siblings are settled
@@ -663,6 +693,15 @@ async function executeMonitorFire(task) {
 
     if (!task.context) task.context = {};
 
+    // Set logContext for LLM log correlation
+    const diffDoms = events.map(e => e.diffDom).filter(Boolean);
+    task.logContext = {
+      taskId: task.id,
+      runNumber: task.runCount,
+      ...(diffDoms.length > 0 ? { diffDom: diffDoms } : {}),
+      diffSnippet: eventTexts,
+    };
+
     const planResult = await runPlan(task);
 
     // Persist result and update conversation history
@@ -708,6 +747,7 @@ async function executeMonitorFire(task) {
   task.status    = 'waiting';
   task.nextRunAt = new Date(Date.now() + intervalMs).toISOString();
   await putTask(task, { skipSync: true });
+  await snapshotTaskRun(task);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { loadSettings, saveSettings, getGitHubSync, saveGitHubSync } from './settings.js';
 import { gwConnect, gwDisconnect, gw } from './gateway.js';
-import { startCron } from './cron.js';
+import { startCron, setCronConfig } from './cron.js';
 import { enqueueTask, rehydrate, setDeliveryHandler, setTypingHandler, setProcessingHandlers, startMonitorTick } from './task-manager.js';
 import { sendDiscordMessage, triggerTyping } from './discord.js';
 import { logMessage, showProcessing, hideProcessing } from './ui.js';
@@ -140,6 +140,7 @@ setProcessingHandlers({
 
 // Start the cron scheduler — it watches for 'waiting' tasks whose nextRunAt
 // has arrived and re-queues them.
+setCronConfig(async () => ({}));
 startCron((task) => {
   console.log('[app] cron fired for task', task.id);
   enqueueTask(task);

@@ -9,11 +9,11 @@
  * nextRunAt <= now, it is moved to 'queued' and picked up by the task manager.
  */
 
-import { getDueTasks, getTasksByStatus, deleteTask, getTask } from './task-store.js';
+import { getDueTasks, getTasksByStatus, deleteTask, getTask, deleteRunsOlderThan, deleteLlmLogsOlderThan } from './task-store.js';
 
 const TICK_INTERVAL_MS = 30_000; // check every 30s
 const CLEANUP_INTERVAL_MS = 3_600_000; // cleanup every hour
-const TASK_MAX_AGE_MS = 180 * 24 * 3_600_000; // 180 days
+const DEFAULT_TASK_TTL_DAYS = 180;
 
 let tickTimer = null;
 let cleanupTimer = null;
@@ -58,15 +58,19 @@ async function tick() {
   }
 }
 
-/** Delete completed/failed tasks older than TASK_MAX_AGE_MS. */
+/** Delete completed/failed tasks older than configured TTL. */
 async function cleanup() {
   try {
     const now = Date.now();
+    const config = getConfigFn ? await getConfigFn() : null;
+    const taskTtlDays = config?.taskTtlDays || DEFAULT_TASK_TTL_DAYS;
+    const taskMaxAgeMs = taskTtlDays * 24 * 3_600_000;
+
     for (const status of ['completed', 'failed']) {
       const tasks = await getTasksByStatus(status);
       for (const t of tasks) {
         const age = now - new Date(t.lastRunAt || t.updatedAt || t.createdAt || 0).getTime();
-        if (age > TASK_MAX_AGE_MS) {
+        if (age > taskMaxAgeMs) {
           // Don't delete child tasks whose parent is still active
           if (t.parentId) {
             const parent = await getTask(t.parentId);
@@ -79,8 +83,28 @@ async function cleanup() {
         }
       }
     }
+    // Clean up local history stores based on configured TTL
+    await cleanupLocalHistory(now, config);
   } catch (err) {
     console.error('[cron] cleanup error:', err);
+  }
+}
+
+let getConfigFn = null;
+export function setCronConfig(fn) { getConfigFn = fn; }
+
+async function cleanupLocalHistory(now, config) {
+  try {
+    if (!config?.enableLocalHistory) return;
+    const ttlDays = config.localHistoryTtlDays || DEFAULT_TASK_TTL_DAYS;
+    const cutoff = new Date(now - ttlDays * 24 * 3_600_000).toISOString();
+    const runsDeleted = await deleteRunsOlderThan(cutoff);
+    const logsDeleted = await deleteLlmLogsOlderThan(cutoff);
+    if (runsDeleted || logsDeleted) {
+      console.log(`[cron] local history cleanup: ${runsDeleted} runs, ${logsDeleted} logs older than ${ttlDays}d`);
+    }
+  } catch (err) {
+    console.warn('[cron] local history cleanup error:', err);
   }
 }
 
