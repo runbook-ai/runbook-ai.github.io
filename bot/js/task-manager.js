@@ -689,12 +689,11 @@ async function executeMonitorFire(task) {
       `similar tasks. Only call browse if the instruction genuinely needs information that ` +
       `isn't in the diff (e.g., opening a full email body, following a link). If the change ` +
       `isn't material to the instruction, call done with silent=true.\n\n` +
-      `Current time: ${new Date().toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}.\n` +
+      `Current time: ${new Date().toLocaleString('sv-SE').replace('T', ' ')}.\n` +
       `CRITICAL: Not all diff markers indicate new content. These are NOT new activity:\n` +
       `- Timestamp text changes (e.g., "5:15 PM" → "Yesterday", "10:38 AM" → "9:00 AM") on existing items\n` +
       `- Navigation toolbar/header button restructuring\n` +
       `- The same text appearing in both data-diff="+" and data-diff="-" (structural reorg, not new content)\n` +
-      `- Items marked data-diff="+" but timestamped more than 15 minutes before current time — these are stale items entering the viewport, not new activity\n` +
       `Only report items whose MESSAGE CONTENT (not timestamp or UI chrome) is genuinely new.\n\n` +
       `Diff:\n${eventTexts}`;
 
