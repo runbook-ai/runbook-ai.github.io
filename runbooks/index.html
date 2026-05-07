@@ -47,6 +47,8 @@
     }
     .nav-links a { font-size: 0.875rem; color: #6b7280; font-weight: 500; text-decoration: none; }
     .nav-links a:hover { color: #1a1a2e; }
+    .nav-links a.active { color: #6366f1; font-weight: 600; }
+    .nav-links a.active:hover { color: #6366f1; }
     .btn-install {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 8px 20px; border-radius: 8px;
@@ -262,14 +264,27 @@
   <nav class="site-nav">
     <a class="nav-logo" href="/">Runbook AI</a>
     <ul class="nav-links">
-      <li><a href="/runbooks/">Runbooks</a></li>
-      <li><a href="/bot/">Bot</a></li>
+      <li><a href="/runbooks/" data-nav="runbooks">Runbooks</a></li>
+      <li><a href="/bot/" data-nav="bot">Bot</a></li>
       <li><a href="https://github.com/runbook-ai/runbook-ai-mcp" target="_blank">MCP Server</a></li>
       <li><a href="https://discord.gg/SDtXkAKK2B" target="_blank">Discord</a></li>
       <li><a href="https://github.com/runbook-ai" target="_blank">GitHub</a></li>
     </ul>
     <a class="btn-install" href="https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj" target="_blank">Install Extension</a>
   </nav>
+
+  <script>
+    (function () {
+      var path = location.pathname.replace(/\/$/, '') || '/';
+      var rb = document.querySelector('.nav-links a[data-nav="runbooks"]');
+      var bot = document.querySelector('.nav-links a[data-nav="bot"]');
+      if (path === '/runbooks' || path.indexOf('/runbooks/') === 0) {
+        if (rb) rb.classList.add('active');
+      } else if (path === '/bot' || path.indexOf('/bot/') === 0) {
+        if (bot) bot.classList.add('active');
+      }
+    })();
+  </script>
 
   <main class="page-main">
 
