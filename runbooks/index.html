@@ -274,6 +274,8 @@
   </nav>
 
   <script>
+    // Highlight the current section in the site nav (Runbooks vs Bot) based on URL path.
+    // Trailing slashes are normalized so /runbooks and /runbooks/ match; query strings are ignored.
     (function () {
       var path = location.pathname.replace(/\/$/, '') || '/';
       var rb = document.querySelector('.nav-links a[data-nav="runbooks"]');
