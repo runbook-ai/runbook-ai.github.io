@@ -92,6 +92,16 @@ function tx(storeName, mode) {
   });
 }
 
+// Test-only: close the cached DB connection and clear the singleton so the
+// next openDB() call reopens. Lets unit tests delete the database between
+// cases without the prior connection blocking the delete request.
+export async function _closeForTesting() {
+  if (!dbPromise) return;
+  const db = await dbPromise;
+  db.close();
+  dbPromise = null;
+}
+
 // ── Task CRUD ──────────────────────────────────────────────────────────────
 
 export function generateId() {
@@ -225,14 +235,41 @@ export async function getRun(id) {
   });
 }
 
-export async function getRunsByTaskId(taskId) {
+function makeTimestampRange(since, until) {
+  if (since != null && until != null) return IDBKeyRange.bound(since, until);
+  if (since != null) return IDBKeyRange.lowerBound(since);
+  if (until != null) return IDBKeyRange.upperBound(until);
+  return null;
+}
+
+function filterByTimestampField(items, field, since, until) {
+  if (since == null && until == null) return items;
+  return items.filter(item => {
+    const t = item[field];
+    if (since != null && t < since) return false;
+    if (until != null && t > until) return false;
+    return true;
+  });
+}
+
+export async function getRunsByTaskId(taskId, { since, until } = {}) {
   const store = await tx(RUN_STORE, 'readonly');
+  if (taskId == null) {
+    const index = store.index('completedAt');
+    const range = makeTimestampRange(since, until);
+    return new Promise((resolve, reject) => {
+      const req = range ? index.getAll(range) : store.getAll();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
   const index = store.index('taskId');
-  return new Promise((resolve, reject) => {
+  const runs = await new Promise((resolve, reject) => {
     const req = index.getAll(taskId);
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+  return filterByTimestampField(runs, 'completedAt', since, until);
 }
 
 export async function deleteRun(id) {
@@ -282,21 +319,24 @@ export async function getLlmLog(id) {
   });
 }
 
-export async function getLlmLogsByTaskId(taskId) {
+export async function getLlmLogsByTaskId(taskId, { since, until } = {}) {
   const store = await tx(LLM_LOG_STORE, 'readonly');
   if (taskId == null) {
+    const index = store.index('timestamp');
+    const range = makeTimestampRange(since, until);
     return new Promise((resolve, reject) => {
-      const req = store.getAll();
+      const req = range ? index.getAll(range) : store.getAll();
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
   }
   const index = store.index('taskId');
-  return new Promise((resolve, reject) => {
+  const logs = await new Promise((resolve, reject) => {
     const req = index.getAll(taskId);
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+  return filterByTimestampField(logs, 'timestamp', since, until);
 }
 
 export async function deleteLlmLog(id) {
