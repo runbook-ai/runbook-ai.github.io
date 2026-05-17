@@ -438,8 +438,9 @@ export { DEFAULT_SOUL, DEFAULT_AGENTS };
 
 // ── Planner loop ───────────────────────────────────────────────────────────
 
-const MAX_STEPS = 10;
-const MAX_BROWSE = 5;
+// Defaults; overridable per-task via task.config.maxSteps / task.config.maxBrowse.
+const DEFAULT_MAX_STEPS = 10;
+const DEFAULT_MAX_BROWSE = 5;
 
 /**
  * Run a multi-step plan for a task.
@@ -570,7 +571,8 @@ export async function runPlan(task) {
 
   let collectedFiles = { ...(task.files || {}) };
   let browseCount = 0;
-  const maxBrowse = MAX_BROWSE;
+  const maxSteps  = Number(task.config?.maxSteps)  > 0 ? Number(task.config.maxSteps)  : DEFAULT_MAX_STEPS;
+  const maxBrowse = Number(task.config?.maxBrowse) > 0 ? Number(task.config.maxBrowse) : DEFAULT_MAX_BROWSE;
   const browseTrajectories = [];
 
   // Hide tools whose preconditions aren't met so the LLM can't waste a call
@@ -584,7 +586,7 @@ export async function runPlan(task) {
     ? { logContext: { taskId: task.logContext.taskId, runNumber: task.logContext.runNumber } }
     : undefined;
 
-  for (let step = 0; step < MAX_STEPS; step++) {
+  for (let step = 0; step < maxSteps; step++) {
     const resp = await think(messages, activeTools, thinkOpts);
 
     // LLM returned tool calls
