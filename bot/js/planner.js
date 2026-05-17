@@ -73,8 +73,6 @@ async function think(messages, tools, opts) {
   }
 }
 
-const ACT_TIMEOUT_MS = 300_000; // 5 minutes max per browse step
-
 /**
  * Browser action — locks the extension for the duration.
  * Returns { text, files } where files is a map of savedFiles from taskState.
@@ -96,34 +94,7 @@ async function act(prompt, savedFiles = {}) {
     ? { savedFiles }
     : null;
 
-  // Race between the headless task and a timeout.
-  // We wrap in a manually-controlled promise so we can reject it even if
-  // chrome.runtime.sendMessage is stuck due to browser process overload.
-  let settled = false;
-  const result = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        reject(new Error('Browse step timed out after 5 minutes'));
-      }
-    }, ACT_TIMEOUT_MS);
-
-    extensionCall('runHeadlessTaskWithConfig', { prompt, initialTaskState, config })
-      .then(resp => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          resolve(resp);
-        }
-      })
-      .catch(err => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timer);
-          reject(err);
-        }
-      });
-  });
+  const result = await extensionCall('runHeadlessTaskWithConfig', { prompt, initialTaskState, config });
 
   // Extract saved files from taskState (if any were downloaded during browsing)
   const files = result?.taskState?.savedFiles || {};
