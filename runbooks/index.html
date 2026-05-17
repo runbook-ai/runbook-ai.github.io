@@ -291,7 +291,11 @@
           <h2 class="result-title">Result</h2>
           <span id="resultMeta" class="result-meta"></span>
         </div>
-        <iframe id="resultFrame" class="result-frame" sandbox="allow-popups" title="Runbook result"></iframe>
+        <!-- allow-same-origin so the parent can read contentDocument and
+             auto-size the iframe to its content. We deliberately omit
+             allow-scripts: combining both would break out of the sandbox,
+             and the runbook result HTML doesn't need to run scripts. -->
+        <iframe id="resultFrame" class="result-frame" sandbox="allow-popups allow-same-origin" title="Runbook result"></iframe>
       </div>
     </section>
 
@@ -486,6 +490,12 @@
             args: { prompt, config: taskConfig },
           });
 
+          // runPlannerTask has returned — stop the elapsed-time ticker
+          // immediately so the post-completion status text isn't clobbered
+          // by the next setInterval fire while we wrap up (switchToTab can
+          // wait on page load and take a few seconds).
+          clearInterval(tick);
+
           if (resp?.error) {
             status.textContent = resp.message || resp.error;
             status.className = "error";
@@ -562,30 +572,31 @@ a{color:#6366f1;text-decoration:none}a:hover{text-decoration:underline}</style>
         resultCard.classList.remove("hidden");
 
         // Size the iframe to its content so there's no inner scrollbar.
-        // srcdoc is same-origin, so we can read contentDocument and re-fit
-        // every time an image inside finishes loading.
+        // srcdoc is same-origin, so we can both read contentDocument and
+        // attach a ResizeObserver to its body — the observer catches every
+        // layout change as data: URL images decode (img `load` events fire
+        // too late and may be skipped when img.complete is already true at
+        // listener-attach time).
+        if (resultFrame.__fitObserver) {
+          resultFrame.__fitObserver.disconnect();
+          resultFrame.__fitObserver = null;
+        }
         const fit = () => {
-          try {
-            const d = resultFrame.contentDocument;
-            if (!d) return;
-            const h = Math.max(
-              d.documentElement.scrollHeight || 0,
-              d.body?.scrollHeight || 0
-            );
-            if (h) resultFrame.style.height = h + "px";
-          } catch {}
+          const d = resultFrame.contentDocument;
+          if (!d) return;
+          const h = Math.max(
+            d.documentElement.scrollHeight || 0,
+            d.body?.scrollHeight || 0
+          );
+          if (h) resultFrame.style.height = h + "px";
         };
         resultFrame.onload = () => {
           fit();
-          try {
-            const imgs = resultFrame.contentDocument?.querySelectorAll("img") || [];
-            imgs.forEach(img => {
-              if (!img.complete) {
-                img.addEventListener("load", fit);
-                img.addEventListener("error", fit);
-              }
-            });
-          } catch {}
+          const d = resultFrame.contentDocument;
+          if (!d || !d.body) return;
+          const ro = new ResizeObserver(fit);
+          ro.observe(d.body);
+          resultFrame.__fitObserver = ro;
         };
       }
 
