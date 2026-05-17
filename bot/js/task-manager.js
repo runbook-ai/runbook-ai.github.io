@@ -214,6 +214,13 @@ async function executeTask(task) {
     task.consecutiveErrors = 0;
     task.lastError         = null;
 
+    // Persist files that accumulated during this run (downloaded artifacts +
+    // result-N.* files written by worker taskReturn). Merged so previously
+    // attached user files survive.
+    if (planResult.files && Object.keys(planResult.files).length > 0) {
+      task.files = { ...(task.files || {}), ...planResult.files };
+    }
+
     // Replace memory — model returns full snapshot each run, old fields are discarded
     // Preserve all __ prefixed meta fields and history
     if (planResult.memory && typeof planResult.memory === 'object') {
@@ -712,6 +719,9 @@ async function executeMonitorFire(task) {
 
     // Persist result and update conversation history
     task.result = planResult.result || '';
+    if (planResult.files && Object.keys(planResult.files).length > 0) {
+      task.files = { ...(task.files || {}), ...planResult.files };
+    }
     if (planResult.memory && typeof planResult.memory === 'object') {
       const preserved = {};
       for (const [k, v] of Object.entries(task.context)) {

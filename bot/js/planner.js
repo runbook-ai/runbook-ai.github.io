@@ -77,7 +77,7 @@ async function think(messages, tools, opts) {
  * Browser action — locks the extension for the duration.
  * Returns { text, files } where files is a map of savedFiles from taskState.
  */
-async function act(prompt, savedFiles = {}) {
+export async function act(prompt, savedFiles = {}, browseIndex = 1) {
   const s = loadSettings();
 
   // Build config and initial taskState — bundled into one call so config
@@ -90,9 +90,13 @@ async function act(prompt, savedFiles = {}) {
     returnTaskState: true,
   };
 
-  const initialTaskState = Object.keys(savedFiles).length > 0
-    ? { savedFiles }
-    : null;
+  // Always pass browseIndex; taskReturn uses it to name the result file
+  // (`result-${browseIndex}.${ext}`) so multi-browse plans accumulate
+  // result-1.html, result-2.html, … in task.files.
+  const initialTaskState = {
+    ...(Object.keys(savedFiles).length > 0 ? { savedFiles } : {}),
+    browseIndex,
+  };
 
   const result = await extensionCall('runHeadlessTaskWithConfig', { prompt, initialTaskState, config });
 
@@ -361,7 +365,7 @@ const PLANNER_TOOLS = [
         properties: {
           summary: {
             type: 'string',
-            description: 'Final result to show the user',
+            description: 'Final result to show the user, in PLAIN TEXT only. No HTML, no markdown tables, no inline images — channels like Discord show those as escaped source. Use short paragraphs and at most simple "- " bullets. If the user asked for rich output (HTML table, formatted report), have a browse step emit it via taskReturn(format=\'html\'/\'markdown\'/\'json\') and reference the resulting attachment here (e.g. "see attached result-1.html"). Do NOT inline rich content into this field.',
           },
           memory: {
             type: 'object',
@@ -432,7 +436,9 @@ Guidelines:
 - For recurring tasks: ALWAYS include runSummary and memory in done(). runSummary should cover all runs including the current one. memory should contain structured state you need on the next run.
 - This may be a multi-turn conversation. Prior messages show what the user asked before and what you found. Use that context to handle follow-up requests (e.g. "reply to email 2" refers to an email listed in a previous response).
 - IMPORTANT: Prefer lightweight pages. When gathering info, read aggregator/summary pages (HN comments, search results, API endpoints) rather than navigating to heavy media-rich external sites. Heavy pages can freeze the browser.
-- If the user input contains <subTask>...</subTask> or <forEachItem>...</forEachItem> notations, pass them as-is to the browse tool prompt. Do not interpret, expand, or strip these tags — they are processed downstream by the browser agent.`;
+- If the user input contains <subTask>...</subTask> or <forEachItem>...</forEachItem> notations, pass them as-is to the browse tool prompt. Do not interpret, expand, or strip these tags — they are processed downstream by the browser agent.
+- **done.summary must always be plain text.** No HTML, no markdown tables, no inline images. Use short paragraphs and at most simple "- " bullets. The summary is delivered through channels (Discord, future messaging apps) that don't render HTML reliably, so anything richer gets shown as escaped source.
+- **If the user asks for an HTML table, formatted report, or any rich output, delegate it to a browse step.** Include in that browse prompt: "When you're done, call taskReturn(format=\\"html\\", result=…) with the final HTML." (or format=\\"markdown\\" / \\"json\\" as appropriate). The worker writes the rich output into a result file that the UI surfaces as a downloadable / viewable attachment. Then in done.summary, write a short plain-text note like "Generated the HTML table; see attached result-1.html." — do NOT inline the HTML into summary.`;
 
 export { DEFAULT_SOUL, DEFAULT_AGENTS };
 
@@ -610,7 +616,7 @@ export async function runPlan(task) {
             browseCount++;
             console.log('[planner] browse:', args.prompt.slice(0, 100));
             try {
-              const browseResult = await act(args.prompt, collectedFiles);
+              const browseResult = await act(args.prompt, collectedFiles, browseCount);
               toolResult = { success: true, result: browseResult.text };
               // Collect any files downloaded during this browse step
               if (browseResult.files && Object.keys(browseResult.files).length > 0) {
