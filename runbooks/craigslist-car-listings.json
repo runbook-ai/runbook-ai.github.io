@@ -1,5 +1,0 @@
-{
-    "maxIterations": 50,
-    "maxInputTokens": 1600000,
-    "maxOutputTokens": 50000
-}

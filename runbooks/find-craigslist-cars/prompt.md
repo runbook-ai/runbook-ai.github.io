@@ -2,7 +2,7 @@ Your task is to find recent car listings on Craigslist meeting my search criteri
 Go to www.craigslist.org.
 
 <subTask>
-Search for "Honda Civic" in the "for sale" section. Filter the results to show only listings with prices between $8000 and $10000. Sort the listings by date and get the recent 5 listings.
+Search for "{{query}}" in the "for sale" section. Filter the results to show only listings with prices between ${{min_price}} and ${{max_price}}. Sort the listings by date and get the recent {{count}} listings.
 </subTask>
 
 <forEachItem>

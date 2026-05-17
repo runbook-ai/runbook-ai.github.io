@@ -1,0 +1,10 @@
+{
+  "title": "Find Craigslist Cars",
+  "description": "Search Craigslist for used cars matching your price range and summarize the results in a table.",
+  "params": [
+    { "name": "query",     "label": "Search query",       "type": "text",   "default": "Honda Civic" },
+    { "name": "min_price", "label": "Min price (USD)",    "type": "number", "default": 8000 },
+    { "name": "max_price", "label": "Max price (USD)",    "type": "number", "default": 10000 },
+    { "name": "count",     "label": "Number of listings", "type": "number", "default": 3 }
+  ]
+}
