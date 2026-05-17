@@ -219,9 +219,10 @@
     .result-title { font-size: 1.125rem; font-weight: 600; }
     .result-meta { font-size: 0.8125rem; color: #9ca3af; }
     .result-frame {
-      width: 100%; min-height: 360px;
+      width: 100%; min-height: 200px;
       border: 1px solid #e5e7eb; border-radius: 8px;
       background: #fff;
+      overflow: hidden;
     }
   </style>
 </head>
@@ -473,16 +474,16 @@
           }
           await new Promise(r => setTimeout(r, 500));
 
-          if (useFree) {
-            await chrome.runtime.sendMessage(EXTENSION_ID, {
-              action: "setRemoteConfig",
-              args: { config: { llmBaseUrl: "https://llm.runbookai.net/v1", llmApiKey: "free" } },
-            });
-          }
+          // Per-task config overrides go inline with runPlannerTask — they
+          // apply only for this run and don't leak to future tasks the way
+          // setRemoteConfig would while the side panel stays open.
+          const taskConfig = useFree
+            ? { llmBaseUrl: "https://llm.runbookai.net/v1", llmApiKey: "free" }
+            : {};
 
           const resp = await chrome.runtime.sendMessage(EXTENSION_ID, {
             action: "runPlannerTask",
-            args: { prompt },
+            args: { prompt, config: taskConfig },
           });
 
           if (resp?.error) {
@@ -496,6 +497,28 @@
           status.textContent = ok ? `Completed in ${elapsed}s.` : `Finished with status: ${resp?.status || "unknown"} (${elapsed}s)`;
           status.className = ok ? "success" : "error";
           renderResult(resp);
+
+          // The agent likely switched the browser to a target tab during
+          // the run. Switch back to our own tab via getTaskState (which
+          // includes the runbook page tab — runPlannerTask records the
+          // launching tab there) + switchToTab.
+          const state = await chrome.runtime.sendMessage(EXTENSION_ID, {
+            action: "getTaskState",
+            args: {},
+          });
+          const myUrl = window.location.href;
+          const myTab = (state?.tabs || []).find(t => t.url === myUrl);
+          if (myTab) {
+            const switchResp = await chrome.runtime.sendMessage(EXTENSION_ID, {
+              action: "switchToTab",
+              args: { tabId: myTab.tabId },
+            });
+            if (switchResp?.error && switchResp.error !== "tab-not-found") {
+              console.warn("switchToTab failed:", switchResp.message || switchResp.error);
+            }
+          } else {
+            console.warn("Could not find runbook tab in taskState.tabs to switch back to.");
+          }
         } catch (err) {
           console.error(err);
           status.textContent = "Failed to run. Make sure the Runbook AI extension is installed and enabled.";
@@ -537,10 +560,31 @@ a{color:#6366f1;text-decoration:none}a:hover{text-decoration:underline}</style>
         const fileLabel = fileNames.length ? ` · ${fileNames.join(", ")}` : "";
         resultMeta.textContent = `Task ${resp?.taskId || "?"} · ${resp?.runCount ?? 0} step${resp?.runCount === 1 ? "" : "s"}${fileLabel}`;
         resultCard.classList.remove("hidden");
-        resultFrame.onload = () => {
+
+        // Size the iframe to its content so there's no inner scrollbar.
+        // srcdoc is same-origin, so we can read contentDocument and re-fit
+        // every time an image inside finishes loading.
+        const fit = () => {
           try {
-            const h = resultFrame.contentDocument?.body?.scrollHeight;
-            if (h && h > 200) resultFrame.style.height = (h + 20) + "px";
+            const d = resultFrame.contentDocument;
+            if (!d) return;
+            const h = Math.max(
+              d.documentElement.scrollHeight || 0,
+              d.body?.scrollHeight || 0
+            );
+            if (h) resultFrame.style.height = h + "px";
+          } catch {}
+        };
+        resultFrame.onload = () => {
+          fit();
+          try {
+            const imgs = resultFrame.contentDocument?.querySelectorAll("img") || [];
+            imgs.forEach(img => {
+              if (!img.complete) {
+                img.addEventListener("load", fit);
+                img.addEventListener("error", fit);
+              }
+            });
           } catch {}
         };
       }
