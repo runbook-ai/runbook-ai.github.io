@@ -141,6 +141,7 @@
       font-size: 0.8125rem; font-weight: 500; color: #6b7280;
       text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;
     }
+    .required-mark { color: #dc2626; font-weight: 600; }
     input[type="text"], input[type="number"], select, textarea {
       width: 100%;
       padding: 10px 14px;
@@ -403,6 +404,12 @@
         label.className = "label";
         label.htmlFor = `p_${p.name}`;
         label.textContent = p.label || p.name;
+        if (p.required) {
+          const star = document.createElement("span");
+          star.className = "required-mark";
+          star.textContent = " *";
+          label.append(star);
+        }
         field.append(label);
 
         let input;
@@ -418,13 +425,21 @@
             o.value = val; o.textContent = lab;
             input.append(o);
           }
+        } else if (p.type === "file") {
+          input = document.createElement("input");
+          input.type = "file";
+          if (p.accept) input.accept = p.accept;
+        } else if (p.type === "date") {
+          input = document.createElement("input");
+          input.type = "date";
         } else {
           input = document.createElement("input");
           input.type = p.type === "number" ? "number" : "text";
         }
         input.id = `p_${p.name}`;
         input.name = p.name;
-        if (p.default !== undefined) input.value = p.default;
+        if (p.required) input.required = true;
+        if (p.default !== undefined && p.type !== "file") input.value = p.default;
         if (p.placeholder) input.placeholder = p.placeholder;
         field.append(input);
         form.append(field);
@@ -434,12 +449,11 @@
       const updatePrompt = () => {
         const values = {};
         for (const p of params) {
+          if (p.type === "file") continue;   // not a substitutable value
           values[p.name] = document.getElementById(`p_${p.name}`).value;
         }
         promptArea.value = fillTemplate(promptTpl, values);
       };
-      form.addEventListener("input", updatePrompt);
-      updatePrompt();
 
       // Run handler
       const runBtn = document.getElementById("runBtn");
@@ -448,12 +462,53 @@
       const resultFrame = document.getElementById("resultFrame");
       const resultMeta = document.getElementById("resultMeta");
 
+      // Gate the Run button on every required param having a value.
+      const updateRunEnabled = () => {
+        const missing = params.filter(p => {
+          if (!p.required) return false;
+          const el = document.getElementById(`p_${p.name}`);
+          if (!el) return true;
+          if (p.type === "file") return !(el.files && el.files.length > 0);
+          return !el.value || (typeof el.value === "string" && el.value.trim() === "");
+        });
+        runBtn.disabled = missing.length > 0;
+        runBtn.title = missing.length > 0
+          ? `Fill in: ${missing.map(p => p.label || p.name).join(", ")}`
+          : "";
+      };
+      form.addEventListener("input", () => { updatePrompt(); updateRunEnabled(); });
+      form.addEventListener("change", updateRunEnabled);  // file/date may not emit input
+      updatePrompt();
+      updateRunEnabled();
+
       runBtn.onclick = async () => {
         const prompt = promptArea.value.trim();
         if (!prompt) {
           status.textContent = "Prompt is empty.";
           status.className = "error";
           return;
+        }
+
+        // Read any file params into a taskFiles map keyed by file name so
+        // the agent can readImageFile / uploadFile by that name. The base64
+        // is the raw content (no data: prefix).
+        const taskFiles = {};
+        for (const p of params) {
+          if (p.type !== "file") continue;
+          const el = document.getElementById(`p_${p.name}`);
+          const f = el?.files?.[0];
+          if (!f) continue;
+          const base64 = await new Promise((res, rej) => {
+            const r = new FileReader();
+            r.onload = () => {
+              const dataUrl = String(r.result || "");
+              const comma = dataUrl.indexOf(",");
+              res(comma === -1 ? "" : dataUrl.slice(comma + 1));
+            };
+            r.onerror = () => rej(r.error);
+            r.readAsDataURL(f);
+          });
+          taskFiles[f.name] = { name: f.name, mimeType: f.type || "application/octet-stream", base64, size: f.size };
         }
 
         const useFree = document.getElementById("freeApiCheckbox").checked;
@@ -487,7 +542,7 @@
 
           const resp = await chrome.runtime.sendMessage(EXTENSION_ID, {
             action: "runPlannerTask",
-            args: { prompt, config: taskConfig },
+            args: { prompt, config: taskConfig, files: taskFiles },
           });
 
           // runPlannerTask has returned — stop the elapsed-time ticker
@@ -535,7 +590,10 @@
           status.className = "error";
         } finally {
           clearInterval(tick);
-          runBtn.disabled = false;
+          // Re-validate required params instead of blindly re-enabling — a
+          // file input may have been cleared, in which case Run should stay
+          // disabled.
+          updateRunEnabled();
         }
       };
 
