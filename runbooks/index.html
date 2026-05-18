@@ -550,7 +550,9 @@
         if (htmlEntry) {
           body = decodeBase64Utf8(htmlEntry.base64 || "");
           if (summary) {
-            body = `<p style="margin:0 0 14px;color:#374151">${escapeHtml(summary)}</p>` + body;
+            // Preserve newlines in the multi-line prose summary; <p> would
+            // collapse them.
+            body = `<div style="margin:0 0 14px;color:#374151;white-space:pre-wrap">${escapeHtml(summary)}</div>` + body;
           }
         } else {
           const hasHtml = /<\w+[\s>]/.test(summary);
