@@ -1,6 +1,7 @@
 {
   "title": "Pay My Medical Bill",
   "description": "Upload a medical bill image. The agent reads the bill, navigates to the payment portal, and submits payment on your behalf.",
+  "note": "Before running this runbook, add your personal and payment details to the secret vault. The agent reads them from there to complete the payment.",
   "params": [
     { "name": "bill_image", "label": "Medical bill (image)", "type": "file", "accept": "image/*", "required": true }
   ]

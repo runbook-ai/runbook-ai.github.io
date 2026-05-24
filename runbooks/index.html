@@ -124,6 +124,13 @@
     }
     .detail-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.3px; }
     .detail-desc  { color: #6b7280; font-size: 0.9375rem; line-height: 1.55; margin-bottom: 18px; }
+    .runbook-note {
+      display: flex; gap: 8px;
+      background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+      padding: 12px 14px; margin-bottom: 18px;
+      color: #92400e; font-size: 0.875rem; line-height: 1.5;
+    }
+    .runbook-note::before { content: "\26A0"; flex: none; }
     .detail-gif {
       width: 100%; border-radius: 8px; border: 1px solid #e5e7eb;
       background: #f3f4f6; aspect-ratio: 16 / 9; object-fit: cover; display: block;
@@ -265,6 +272,7 @@
         <div class="detail-card">
           <h1 class="detail-title" id="detailTitle"></h1>
           <p class="detail-desc" id="detailDesc"></p>
+          <div class="runbook-note hidden" id="detailNote"></div>
           <div id="detailGifWrap"></div>
         </div>
         <div class="detail-card">
@@ -380,6 +388,15 @@
       document.title = `${manifest.title} — Runbook AI`;
       document.getElementById("detailTitle").textContent = manifest.title || slug;
       document.getElementById("detailDesc").textContent  = manifest.description || "";
+
+      const noteEl = document.getElementById("detailNote");
+      if (manifest.note) {
+        noteEl.textContent = manifest.note;
+        noteEl.classList.remove("hidden");
+      } else {
+        noteEl.textContent = "";
+        noteEl.classList.add("hidden");
+      }
 
       const gifWrap = document.getElementById("detailGifWrap");
       gifWrap.innerHTML = "";
