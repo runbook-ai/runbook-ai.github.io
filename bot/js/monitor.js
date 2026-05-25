@@ -50,7 +50,27 @@ const pollCountByTask = new Map();
  *   the diff snippet (empty array = no trigger)
  */
 export async function runMonitorPoll(task) {
-  const tabId = task.config?.tabId ?? 0;
+  let tabId = task.config?.tabId ?? 0;
+
+  // Recover the watched tab by URL. Chrome tab ids are not stable -- they are
+  // reused across browser restarts and reassigned when tabs close/reopen -- so
+  // a stale config.tabId can point at nothing (poll fails, monitor dies) or at
+  // the WRONG tab (poll silently watches an unrelated page). Re-resolve the
+  // live id from the stored tabUrl each poll and persist it; pollMonitor saves
+  // the task after every poll, so the updated config.tabId sticks.
+  const tabUrl = task.config?.tabUrl;
+  if (tabUrl) {
+    try {
+      const found = await extensionCall('findTabByUrl', { url: tabUrl });
+      if (found && found.tabId) {
+        if (task.config && found.tabId !== tabId) task.config.tabId = found.tabId;
+        tabId = found.tabId;
+      }
+    } catch {
+      // Fall back to the configured tabId; the fetch below reports a clear error.
+    }
+  }
+
   const prevDom = prevDomByTask.get(task.id) || null;
 
   let snap;
