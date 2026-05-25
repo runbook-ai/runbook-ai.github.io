@@ -40,6 +40,21 @@ const prevDomByTask = new Map();
 // first true diff (which compares against a freshly baselined snapshot).
 const pollCountByTask = new Map();
 
+function originOf(u) {
+  try { return new URL(u).origin; } catch { return null; }
+}
+
+// Fetch a tab's condensed-DOM snapshot. Returns null when the tab is gone so
+// the caller can attempt URL-based recovery; rethrows unexpected fetch errors.
+async function fetchTabSnapshot(tabId, prevDom) {
+  try {
+    return await extensionCall('fetchWebPage', { tabId, prevDom });
+  } catch (err) {
+    if (err.code === 'html-page-not-available') return null;
+    throw new Error(`Monitor failed to fetch tab ${tabId}: ${err.message}`);
+  }
+}
+
 /**
  * Run one monitor poll cycle.
  *
@@ -51,40 +66,34 @@ const pollCountByTask = new Map();
  */
 export async function runMonitorPoll(task) {
   let tabId = task.config?.tabId ?? 0;
-
-  // Recover the watched tab by URL. Chrome tab ids are not stable -- they are
-  // reused across browser restarts and reassigned when tabs close/reopen -- so
-  // a stale config.tabId can point at nothing (poll fails, monitor dies) or at
-  // the WRONG tab (poll silently watches an unrelated page). Re-resolve the
-  // live id from the stored tabUrl each poll and persist it; pollMonitor saves
-  // the task after every poll, so the updated config.tabId sticks.
   const tabUrl = task.config?.tabUrl;
-  if (tabUrl) {
-    try {
-      const found = await extensionCall('findTabByUrl', { url: tabUrl });
-      if (found && found.tabId) {
-        if (task.config && found.tabId !== tabId) task.config.tabId = found.tabId;
-        tabId = found.tabId;
-      }
-    } catch {
-      // Fall back to the configured tabId; the fetch below reports a clear error.
-    }
-  }
-
+  const wantOrigin = originOf(tabUrl);
   const prevDom = prevDomByTask.get(task.id) || null;
 
-  let snap;
-  try {
-    snap = await extensionCall('fetchWebPage', { tabId, prevDom });
-  } catch (err) {
-    if (err.code === 'html-page-not-available') {
-      throw new Error(`Monitor tab ${tabId} is no longer available (closed or navigated away)`);
+  // Try the bound tab id FIRST. Reusing it keeps the monitor pinned to one
+  // specific tab across polls -- important when several tabs share the URL --
+  // and avoids a tab lookup on the happy path.
+  let snap = await fetchTabSnapshot(tabId, prevDom);
+
+  // Recover by URL only when the bound tab is gone, or when tab-id reuse has
+  // landed us on a different site. Chrome tab ids are not stable: they are
+  // reused across browser restarts and reassigned on tab close/reopen, so a
+  // stale config.tabId can point at nothing (poll fails, monitor dies) or at an
+  // unrelated page. Re-resolve from the stored tabUrl, persist the new id
+  // (pollMonitor saves the task after every poll), and re-fetch the right tab.
+  const wrongSite = snap && snap.url && wantOrigin && originOf(snap.url) !== wantOrigin;
+  if ((!snap || !snap.dom || wrongSite) && tabUrl) {
+    let found = null;
+    try { found = await extensionCall('findTabByUrl', { url: tabUrl }); } catch {}
+    if (found && found.tabId && found.tabId !== tabId) {
+      tabId = found.tabId;
+      if (task.config) task.config.tabId = tabId;
+      snap = await fetchTabSnapshot(tabId, prevDom);
     }
-    throw new Error(`Monitor failed to fetch tab ${tabId}: ${err.message}`);
   }
 
   if (!snap) {
-    throw new Error(`Monitor: no response from fetchWebPage for tab ${tabId}`);
+    throw new Error(`Monitor tab ${tabId} is no longer available (closed or navigated away)`);
   }
   if (!snap.dom) {
     throw new Error(`Monitor: no DOM returned for tab ${tabId}`);
