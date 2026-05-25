@@ -468,12 +468,19 @@ export async function runPlan(task) {
     participantNote = `\n\nChannel participants:\n${list}\nTo mention someone, use <@USER_ID> with the numeric ID. NEVER use @username — it won't render as a mention.`;
   }
 
+  // Personal notes the user configured (mirrors the browser agent's section).
+  const personalNotes = task.config?.personalNotes;
+  const personalNotesNote = personalNotes
+    ? `\n\n## Personal notes from user\n\`\`\`\n${personalNotes}\n\`\`\``
+    : '';
+
   const systemPrompt = [
     soul || DEFAULT_SOUL,
     '\n\nYour role: break down user requests into concrete steps and execute them using the available tools.\n\n',
     agents || DEFAULT_AGENTS,
     memory,
     participantNote,
+    personalNotesNote,
     `\n\nCurrent date time: ${new Date().toString()}\nRun #${task.runCount} of this task.${scheduleNote}`,
   ].join('');
   const messages = [

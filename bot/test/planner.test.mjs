@@ -17,7 +17,44 @@ globalThis.localStorage = {
   removeItem(k) { delete this.store[k]; },
 };
 
-const { act, setActionRunner } = await import('../js/planner.js');
+// Minimal indexedDB stub so buildWorkspaceContext()/getDailyMemories() resolve
+// to an empty store under node (runPlan reaches them on every run).
+const emptyStore = {
+  getAll() {
+    const req = { onsuccess: null, onerror: null, result: [] };
+    queueMicrotask(() => req.onsuccess && req.onsuccess());
+    return req;
+  },
+};
+globalThis.indexedDB = {
+  open() {
+    const req = { onsuccess: null, onerror: null, onupgradeneeded: null,
+      result: {
+        objectStoreNames: { contains: () => true },
+        createObjectStore: () => emptyStore,
+        transaction: () => ({ objectStore: () => emptyStore }),
+      } };
+    queueMicrotask(() => req.onsuccess && req.onsuccess());
+    return req;
+  },
+};
+
+const { act, runPlan, setActionRunner } = await import('../js/planner.js');
+
+// Runner that captures the system prompt sent to the LLM and short-circuits
+// the planner loop by returning a single `done` tool call.
+function makePlannerRunner() {
+  const seen = {};
+  const fn = async (action, args) => {
+    if (action === 'callLLMWithTools') {
+      seen.systemPrompt = args.messages.find(m => m.role === 'system')?.content;
+      return { toolCalls: [{ id: '1', function: { name: 'done', arguments: JSON.stringify({ summary: 'ok' }) } }] };
+    }
+    return {};
+  };
+  fn.seen = seen;
+  return fn;
+}
 
 function makeMockRunner() {
   const calls = [];
@@ -71,5 +108,26 @@ test('act: empty savedFiles still produces browseIndex-only initialTaskState', a
   assert.equal(its.browseIndex, 1);
   // No `savedFiles` field when empty (act spreads `{}` only when non-empty).
   assert.equal('savedFiles' in its, false);
+  setActionRunner(null);
+});
+
+test('runPlan: personal notes from config are injected into the system prompt', async () => {
+  const runner = makePlannerRunner();
+  setActionRunner(runner);
+  await runPlan({
+    prompt: 'do something',
+    runCount: 1,
+    config: { personalNotes: 'My name is Jun. Prefer concise answers.' },
+  });
+  assert.match(runner.seen.systemPrompt, /## Personal notes from user/);
+  assert.match(runner.seen.systemPrompt, /My name is Jun\. Prefer concise answers\./);
+  setActionRunner(null);
+});
+
+test('runPlan: no personal notes section when config.personalNotes is unset', async () => {
+  const runner = makePlannerRunner();
+  setActionRunner(runner);
+  await runPlan({ prompt: 'do something', runCount: 1, config: {} });
+  assert.doesNotMatch(runner.seen.systemPrompt, /## Personal notes from user/);
   setActionRunner(null);
 });
