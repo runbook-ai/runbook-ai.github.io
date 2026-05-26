@@ -1,0 +1,12 @@
+{
+  "title": "Used Car Buying Agent",
+  "description": "Finds used cars in your price range, emails sellers to ask if they're still available, then watches your inbox and negotiates replies on your behalf.",
+  "note": "Set your name and email in Settings > Personal Notes (the agent signs inquiries as you and gives that as the reply address), and make sure you're signed into Gmail in this browser.",
+  "params": [
+    { "name": "make_model", "label": "Make & model",          "type": "text",   "default": "Honda Civic" },
+    { "name": "location",   "label": "Region",                 "type": "text",   "default": "SF Bay Area" },
+    { "name": "min_price",  "label": "Min price (USD)",        "type": "number", "default": 8000 },
+    { "name": "max_price",  "label": "Max price (USD)",        "type": "number", "default": 10000 },
+    { "name": "count",      "label": "Min distinct listings",  "type": "number", "default": 5 }
+  ]
+}
