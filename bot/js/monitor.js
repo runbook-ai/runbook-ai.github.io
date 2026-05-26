@@ -26,33 +26,33 @@ let runAction = defaultExtensionCall;
 export function setActionRunner(fn) { runAction = fn || defaultExtensionCall; }
 const extensionCall = (action, args) => runAction(action, args);
 
-// Per-task continuity. Map from task.id → previous condensed DOM (from the
-// last successful poll). The map survives bot-page lifetime; on bot-page
-// reload it resets and the next poll re-baselines naturally.
-//
-// Not persisted: trees are KB-scale and the cost of re-baselining once after
-// a reload is exactly one missed-trigger window. The data is also coupled to
-// the in-memory poll counter, so persisting one without the other would be
-// wrong anyway.
-const prevDomByTask = new Map();
-// Per-task warm-up counter. Two polls of "no diff returned" are absorbed
-// before we report changes upstream — covers async-loaded content and the
-// first true diff (which compares against a freshly baselined snapshot).
-const pollCountByTask = new Map();
+// Per-task continuity is persisted in `task.config.prevDom` (the previous
+// condensed-DOM snapshot the next poll diffs against). pollMonitor calls
+// putTask after every poll, so any mutation we make here sticks across
+// restarts/reboots/sidepanel reloads -- the first post-restart poll diffs
+// against the pre-restart baseline and catches whatever changed during
+// downtime, instead of silently re-baselining and losing those changes.
+// `prevDom` is stripped from the github-sync payload (see taskForSync in
+// github-sync.js) since it's large and churns every poll.
 
 function originOf(u) {
   try { return new URL(u).origin; } catch { return null; }
 }
 
-// Fetch a tab's condensed-DOM snapshot. Returns null when the tab is gone so
-// the caller can attempt URL-based recovery; rethrows unexpected fetch errors.
+// Fetch a tab's condensed-DOM snapshot. Returns null ONLY when the tab is
+// gone (caller can attempt URL-based recovery); throws a descriptive error
+// for other failure modes -- including a null/undefined result from the
+// fetcher, which shouldn't happen under normal operation.
 async function fetchTabSnapshot(tabId, prevDom) {
+  let result;
   try {
-    return await extensionCall('fetchWebPage', { tabId, prevDom });
+    result = await extensionCall('fetchWebPage', { tabId, prevDom });
   } catch (err) {
     if (err.code === 'html-page-not-available') return null;
     throw new Error(`Monitor failed to fetch tab ${tabId}: ${err.message}`);
   }
+  if (!result) throw new Error(`Monitor: no response from fetchWebPage for tab ${tabId}`);
+  return result;
 }
 
 /**
@@ -68,7 +68,7 @@ export async function runMonitorPoll(task) {
   let tabId = task.config?.tabId ?? 0;
   const tabUrl = task.config?.tabUrl;
   const wantOrigin = originOf(tabUrl);
-  const prevDom = prevDomByTask.get(task.id) || null;
+  const prevDom = task.config?.prevDom || null;
 
   // Try the bound tab id FIRST. Reusing it keeps the monitor pinned to one
   // specific tab across polls -- important when several tabs share the URL --
@@ -82,7 +82,9 @@ export async function runMonitorPoll(task) {
   // unrelated page. Re-resolve from the stored tabUrl, persist the new id
   // (pollMonitor saves the task after every poll), and re-fetch the right tab.
   const wrongSite = snap && snap.url && wantOrigin && originOf(snap.url) !== wantOrigin;
-  if ((!snap || !snap.dom || wrongSite) && tabUrl) {
+  // Trigger URL-based recovery on tab-gone or wrong-site; a present-but-empty
+  // DOM is a transient extraction failure, not a wrong tab -- let it throw.
+  if ((!snap || wrongSite) && tabUrl) {
     let found = null;
     try { found = await extensionCall('findTabByUrl', { url: tabUrl }); } catch {}
     if (found && found.tabId && found.tabId !== tabId) {
@@ -99,20 +101,19 @@ export async function runMonitorPoll(task) {
     throw new Error(`Monitor: no DOM returned for tab ${tabId}`);
   }
 
-  // Carry the snapshot forward for the next poll.
-  prevDomByTask.set(task.id, snap.dom);
+  // Carry the snapshot forward for the next poll. Mutating task.config sticks
+  // because pollMonitor putTask()s the task after every poll, so prevDom
+  // survives across restarts/reboots/sidepanel reloads.
+  if (!task.config) task.config = {};
+  task.config.prevDom = snap.dom;
 
-  const polls = (pollCountByTask.get(task.id) ?? 0) + 1;
-  pollCountByTask.set(task.id, polls);
-
-  // Warm-up: absorb only the first poll, which has no prevDom (no diff is
-  // possible). Real triggers fire from poll #2 onward. We deliberately do NOT
-  // also skip poll #2: a 2-poll warm-up means anything that appears between
-  // poll #1 (baseline) and poll #2 gets folded into the baseline and is never
-  // reported -- e.g. an email reply arriving right after the monitor starts is
-  // silently missed. The settling risk (lazy images between poll #1 and #2) is
-  // minor for the content monitors watch (inboxes, notifications, dashboards).
-  if (polls <= 1) return [];
+  // Warm-up is presence-based, not pollCount-based: skip only when we have no
+  // persisted baseline yet (the very first poll of a brand-new monitor -- no
+  // diff is possible without a prior snapshot). Every subsequent poll, even
+  // the first one after a restart, has a real prevDom and can fire on a diff.
+  // This is what avoids silently absorbing replies that arrived while the
+  // monitor was down or right after it was created.
+  if (!prevDom) return [];
 
   if (!snap.diff) return [];
   return [{

@@ -29,6 +29,17 @@ const BULK_SYNC_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
 const DEBOUNCE_MS = 300;
 const API = 'https://api.github.com';
 
+// Clone a task for github sync, stripping per-poll monitor state we don't want
+// serialized. `config.prevDom` is the persisted DOM snapshot a monitor diffs
+// against -- it's large and changes every poll, so shipping it on every sync
+// would bloat the repo and churn commits. The runtime keeps the real value in
+// the local IndexedDB task record.
+function taskForSync(t) {
+  if (!t || typeof t !== 'object' || !t.config || !('prevDom' in t.config)) return t;
+  const { prevDom, ...config } = t.config;
+  return { ...t, config };
+}
+
 // ── Config helpers ───────────────────────────────────────────────────────────
 
 function cfg() {
@@ -154,7 +165,7 @@ async function githubPatch(path, body) {
 
 export async function pushTask(task) {
   const filename = taskFilename(task);
-  const content = btoa(unescape(encodeURIComponent(JSON.stringify(task, null, 2))));
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(taskForSync(task), null, 2))));
   const { branch } = cfg();
 
   // Get SHA from cache or fetch it
@@ -261,7 +272,7 @@ export async function bulkSync() {
   // Build tree entries — create blobs first to avoid the ~40 KB inline content limit
   const tree = [];
   for (const task of tasks) {
-    const content = JSON.stringify(task, null, 2);
+    const content = JSON.stringify(taskForSync(task), null, 2);
     const blob = await githubPost('git/blobs', {
       content: btoa(unescape(encodeURIComponent(content))),
       encoding: 'base64',
@@ -316,7 +327,7 @@ export async function bulkSync() {
     // Empty repo — bootstrap with Contents API (creates first commit implicitly)
     for (const task of tasks) {
       const filename = taskFilename(task);
-      const content = btoa(unescape(encodeURIComponent(JSON.stringify(task, null, 2))));
+      const content = btoa(unescape(encodeURIComponent(JSON.stringify(taskForSync(task), null, 2))));
       const result = await githubPut(`contents/${filename}`, {
         message: `sync task ${task.id}`,
         content,
