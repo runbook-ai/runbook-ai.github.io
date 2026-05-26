@@ -105,10 +105,14 @@ export async function runMonitorPoll(task) {
   const polls = (pollCountByTask.get(task.id) ?? 0) + 1;
   pollCountByTask.set(task.id, polls);
 
-  // Warm-up: absorb the first two polls. Poll #1 has no prevDom (no diff
-  // possible). Poll #2 compares against a tree that may still be settling
-  // (async images, lazy-rendered widgets). Real triggers fire from poll #3.
-  if (polls <= 2) return [];
+  // Warm-up: absorb only the first poll, which has no prevDom (no diff is
+  // possible). Real triggers fire from poll #2 onward. We deliberately do NOT
+  // also skip poll #2: a 2-poll warm-up means anything that appears between
+  // poll #1 (baseline) and poll #2 gets folded into the baseline and is never
+  // reported -- e.g. an email reply arriving right after the monitor starts is
+  // silently missed. The settling risk (lazy images between poll #1 and #2) is
+  // minor for the content monitors watch (inboxes, notifications, dashboards).
+  if (polls <= 1) return [];
 
   if (!snap.diff) return [];
   return [{
