@@ -211,6 +211,12 @@ export function createTaskRecord(overrides = {}) {
     createdAt:         now,
     updatedAt:         now,
     createdBy:         null,
+    // Subscription-task fields (only populated when type === 'subscription');
+    // event-driven tasks created by spawn_task({trigger:{topic, expiresAt?}}).
+    // See bot/js/event-store.js and auto-chrome/docs/event-driven-tasks-design.md.
+    type:              null,   // null | 'monitor' | 'subscription'
+    trigger:           null,   // { topic, expiresAt? }
+    cursor:            null,   // ISO 8601 ts of last consumed event
     ...overrides,
   };
 }

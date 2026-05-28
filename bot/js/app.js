@@ -1,7 +1,8 @@
 import { loadSettings, saveSettings, getGitHubSync, saveGitHubSync } from './settings.js';
 import { gwConnect, gwDisconnect, gw } from './gateway.js';
 import { startCron, setCronConfig } from './cron.js';
-import { enqueueTask, rehydrate, setDeliveryHandler, setTypingHandler, setProcessingHandlers, startMonitorTick } from './task-manager.js';
+import { enqueueTask, rehydrate, setDeliveryHandler, setTypingHandler, setProcessingHandlers, startMonitorTick, startEventTick } from './task-manager.js';
+import { gcEvents } from './event-store.js';
 import { sendDiscordMessage, triggerTyping } from './discord.js';
 import { logMessage, showProcessing, hideProcessing } from './ui.js';
 import { loadWorkspaceFile, saveWorkspaceFile, getDailyMemories, clearDailyMemories } from './memory-store.js';
@@ -155,6 +156,15 @@ rehydrate().then(() => {
 
 // Start monitor scheduler (runs parallel to serial agent queue)
 startMonitorTick();
+
+// Start event scheduler (drives spawn_task({trigger:{topic}}) subscriptions)
+startEventTick();
+
+// GC old event lines on startup + once a day. 30-day TTL per the design.
+gcEvents().then(r => r.dropped && console.log(`[app] gcEvents dropped ${r.dropped} old lines across ${r.topics} topics`)).catch(err => console.warn('[app] gcEvents failed:', err.message));
+setInterval(() => {
+  gcEvents().then(r => r.dropped && console.log(`[app] gcEvents dropped ${r.dropped} old lines across ${r.topics} topics`)).catch(err => console.warn('[app] gcEvents failed:', err.message));
+}, 24 * 60 * 60 * 1000);
 
 // Start monitor panel UI
 const monitorContainer = document.getElementById('monitorPanel');

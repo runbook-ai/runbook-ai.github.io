@@ -12,6 +12,7 @@ import { createAndEnqueue, cancelTask } from './task-manager.js';
 import { createTaskRecord, putTask, getAllTasks } from './task-store.js';
 import { buildWorkspaceContext } from './memory-store.js';
 import { readFile, writeFile, appendFile, listFiles, deleteFile, fileInfo, grepFiles } from './file-store.js';
+import { latestEventTs } from './event-store.js';
 import { extensionCall as defaultExtensionCall } from './extension.js';
 
 // Pluggable action runner. Bot page uses the default (chrome.runtime.sendMessage
@@ -176,11 +177,20 @@ const PLANNER_TOOLS = [
           },
           stopCondition: {
             type: 'string',
-            description: 'For recurring tasks: when this condition is met, the child auto-completes. E.g. "reply received", "item back in stock".',
+            description: 'For recurring or subscription tasks: when this condition is met, the child auto-completes. E.g. "reply received", "item back in stock". Evaluated by the planner at fire time.',
           },
           context: {
             type: 'object',
             description: 'Initial context/memory to pass to the child (e.g. item details, URLs to monitor).',
+          },
+          trigger: {
+            type: 'object',
+            description: 'Make this an EVENT-DRIVEN subscription instead of an immediate or scheduled run. The task sits in `waiting` and fires its prompt every time a matching event arrives on the topic (events come from other tasks calling done({emit:[…]})). Mutually exclusive with `schedule` and `maxRuns`. Subscriptions auto-terminate via `stopCondition` (LLM-judged content) and/or `trigger.expiresAt` (wall-clock).',
+            properties: {
+              topic: { type: 'string', description: 'Topic name to subscribe to, e.g. "lead.found", "dealer.reply.received". Match exactly the topic a producer emits.' },
+              expiresAt: { type: 'string', description: 'Optional ISO 8601 deadline. Subscription auto-completes at this time regardless of inbound event traffic. Use for "run for 7 days" style bounds.' },
+            },
+            required: ['topic'],
           },
         },
         required: ['prompt'],
@@ -407,6 +417,19 @@ const PLANNER_TOOLS = [
           stopReached: {
             type: 'boolean',
             description: 'Set to true when the stop condition for this recurring task has been met. The task will auto-complete and stop recurring.',
+          },
+          emit: {
+            type: 'array',
+            description: 'Events to publish at task completion. Tasks subscribed to a matching topic via spawn_task({trigger:{topic}}) will fire with the payload. Use to chain reactive work without binding to specific child IDs. Recurring/monitor tasks emit per fire. Choose narrow, specific topic names — routing happens at the producer side, subscribers cannot filter beyond topic match.',
+            items: {
+              type: 'object',
+              properties: {
+                topic:    { type: 'string', description: 'Topic name, e.g. "lead.found", "dealer.reply.received".' },
+                payload:  { type: 'object', description: 'Event payload — any JSON. Subscribers see this in the fire prompt.' },
+                dedupKey: { type: 'string', description: 'Optional. If the same (topic, dedupKey) was emitted within 24h, this emit is dropped silently.' },
+              },
+              required: ['topic', 'payload'],
+            },
           },
         },
         required: ['summary'],
@@ -672,11 +695,55 @@ export async function runPlan(task) {
 
           case 'spawn_task': {
             const MAX_RUNS_CAP = 100;
-            const maxRuns = args.maxRuns ? Math.min(args.maxRuns, MAX_RUNS_CAP) : null;
+            const trigger = args.trigger || null;
+
+            // Validate mutually-exclusive options
+            if (trigger) {
+              if (args.schedule) { toolResult = { error: 'spawn-task-invalid', message: 'trigger and schedule are mutually exclusive — pick one' }; break; }
+              if (args.maxRuns)  { toolResult = { error: 'spawn-task-invalid', message: 'maxRuns has no meaning for subscription tasks; use stopCondition or trigger.expiresAt instead' }; break; }
+              if (!trigger.topic || typeof trigger.topic !== 'string') { toolResult = { error: 'spawn-task-invalid', message: 'trigger.topic is required' }; break; }
+            }
+
             const schedule = args.schedule || null;
-            console.log('[planner] spawn_task:', args.prompt.slice(0, 80),
-              schedule ? `every ${schedule.intervalMs}ms, max ${maxRuns} runs` : '(one-shot)');
+            const maxRuns = args.maxRuns ? Math.min(args.maxRuns, MAX_RUNS_CAP) : null;
             const childPrompt = args.prompt;
+
+            if (trigger) {
+              console.log('[planner] spawn_task:', childPrompt.slice(0, 80), `(subscription on '${trigger.topic}'${trigger.expiresAt ? `, expires ${trigger.expiresAt}` : ''})`);
+              // Initial cursor = latest event ts at creation time. New
+              // subscribers only see events from now on; they do not
+              // replay history.
+              const cursor = await latestEventTs(trigger.topic);
+              const child = await createAndEnqueue({
+                prompt:    childPrompt,
+                config:    task.config,
+                channelId: task.channelId,
+                replyToId: task.replyToId,
+                createdBy: task.createdBy,
+                schedule:  null,
+                maxRuns:   null,
+                parentId:  task.id,
+              });
+              // Mark as subscription and stash trigger/cursor on the record.
+              child.type    = 'subscription';
+              child.trigger = { topic: trigger.topic, ...(trigger.expiresAt ? { expiresAt: trigger.expiresAt } : {}) };
+              child.cursor  = cursor; // null if topic has no events yet
+              child.status  = 'waiting';
+              child.nextRunAt = null;
+              if (args.context && typeof args.context === 'object') {
+                child.context = { ...child.context, ...args.context };
+              }
+              if (args.stopCondition) child.context.__stopCondition = args.stopCondition;
+              // Subscription tasks remember their original prompt for fire-prompt rebuilds.
+              if (!child.config) child.config = {};
+              child.config.subscriptionPrompt = childPrompt;
+              await putTask(child);
+              toolResult = { spawned: true, taskId: child.id, trigger: child.trigger };
+              break;
+            }
+
+            console.log('[planner] spawn_task:', childPrompt.slice(0, 80),
+              schedule ? `every ${schedule.intervalMs}ms, max ${maxRuns} runs` : '(one-shot)');
             const child = await createAndEnqueue({
               prompt:    childPrompt,
               config:    task.config,
@@ -835,7 +902,7 @@ export async function runPlan(task) {
           }
 
           case 'done': {
-            console.log('[planner] done', args.stopReached ? '(stop condition reached)' : '', args.silent ? '(silent)' : '');
+            console.log('[planner] done', args.stopReached ? '(stop condition reached)' : '', args.silent ? '(silent)' : '', Array.isArray(args.emit) ? `(emit ${args.emit.length})` : '');
             return {
               result: args.summary,
               memory: args.memory || null,
@@ -845,6 +912,7 @@ export async function runPlan(task) {
               trajectory: messages, browseTrajectories,
               files: collectedFiles,
               stopReached: !!args.stopReached,
+              emit: Array.isArray(args.emit) ? args.emit : null,
             };
           }
 
@@ -895,6 +963,7 @@ export async function runPlan(task) {
           trajectory: messages, browseTrajectories,
           files: collectedFiles,
           stopReached: !!args.stopReached,
+          emit: Array.isArray(args.emit) ? args.emit : null,
         };
       }
     }

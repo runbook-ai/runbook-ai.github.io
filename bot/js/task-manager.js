@@ -18,6 +18,7 @@ import { computeNextRun, computeBackoff } from './cron.js';
 import { runPlan, UserCancelledError } from './planner.js';
 import { appendDailyMemory } from './memory-store.js';
 import { runMonitorPoll } from './monitor.js';
+import { appendEvent, getEventsSince, oldestEventTs } from './event-store.js';
 
 // ── Task run snapshot ─────────────────────────────────────────────────────
 
@@ -97,6 +98,33 @@ export function setProcessingHandlers({ onStart, onStop } = {}) {
 
 function showProcessing(task) { if (processingStartFn) processingStartFn(task); }
 function hideProcessing(task) { if (processingStopFn)  processingStopFn(task);  }
+
+// ── Emit dispatch ──────────────────────────────────────────────────────────
+
+/**
+ * Persist events from a planner result. Called from executeTask /
+ * executeMonitorFire / executeSubscriptionFire after runPlan resolves.
+ * Failures here must not roll back the run — they're logged and swallowed.
+ */
+async function dispatchEmits(task, emits) {
+  if (!Array.isArray(emits) || emits.length === 0) return;
+  for (const e of emits) {
+    if (!e || typeof e !== 'object' || !e.topic) {
+      console.warn('[task-manager] skipping malformed emit:', e);
+      continue;
+    }
+    try {
+      await appendEvent({
+        topic:        e.topic,
+        payload:      e.payload ?? {},
+        dedupKey:     e.dedupKey || undefined,
+        sourceTaskId: task.id,
+      });
+    } catch (err) {
+      console.error('[task-manager] appendEvent failed for', e.topic, err);
+    }
+  }
+}
 
 // ── Serial queue ────────────────────────────────────────────────────────────
 
@@ -181,6 +209,16 @@ async function executeTask(task) {
     return;
   }
 
+  // Subscription fires (event-driven) go through their own narrow flow.
+  if (task.type === 'subscription') {
+    try {
+      await executeSubscriptionFire(task);
+    } finally {
+      hideProcessing(task);
+    }
+    return;
+  }
+
   try {
     // Inject child task statuses so the planner can react to child completions
     const children = await getChildTasks(task.id);
@@ -213,6 +251,12 @@ async function executeTask(task) {
     task.result            = planResult.result || 'Task completed with no result.';
     task.consecutiveErrors = 0;
     task.lastError         = null;
+
+    // Publish any events the planner produced via done({emit:[…]}).
+    // Done before files/memory persistence so a downstream subscription
+    // could see the events even if the post-run housekeeping below
+    // throws — appendEvent failures don't affect the run.
+    await dispatchEmits(task, planResult.emit);
 
     // Persist files that accumulated during this run (downloaded artifacts +
     // result-N.* files written by worker taskReturn). Merged so previously
@@ -717,6 +761,9 @@ async function executeMonitorFire(task) {
 
     const planResult = await runPlan(task);
 
+    // Publish any events emitted by this fire.
+    await dispatchEmits(task, planResult.emit);
+
     // Persist result and update conversation history
     task.result = planResult.result || '';
     if (planResult.files && Object.keys(planResult.files).length > 0) {
@@ -795,4 +842,185 @@ export function startMonitorTick() {
   monitorTick(); // immediate first check
   monitorTickTimer = setInterval(monitorTick, MONITOR_TICK_MS);
   console.log('[task-manager] monitor tick started');
+}
+
+// ── Subscription (event) tick ──────────────────────────────────────────────
+
+const EVENT_TICK_MS = 2_000;
+let eventTickTimer  = null;
+
+/**
+ * Fire a subscription on a batch of new events. Mirrors executeMonitorFire:
+ * builds a fire prompt with the events listed under the original instruction,
+ * runs the planner, dispatches any emits, persists results, and returns the
+ * task to `waiting` (no nextRunAt — next fire is event-driven).
+ *
+ * Pre-conditions: task.config.pendingEvents is an array of event rows
+ * stashed by eventTick. Cleared on entry.
+ */
+async function executeSubscriptionFire(task) {
+  if (!task.config) task.config = {};
+  const events = task.config.pendingEvents || [];
+  delete task.config.pendingEvents;
+
+  if (events.length === 0) {
+    // Defensive: nothing to fire on; bounce back to waiting.
+    task.status    = 'waiting';
+    task.nextRunAt = null;
+    await putTask(task, { skipSync: true });
+    return;
+  }
+
+  try {
+    // Bounded event-history log on the task config (parallel to monitor's messageHistory).
+    if (!Array.isArray(task.config.eventHistory)) task.config.eventHistory = [];
+    task.config.eventHistory.push({ at: new Date().toISOString(), count: events.length, topic: task.trigger?.topic });
+    if (task.config.eventHistory.length > 100) task.config.eventHistory = task.config.eventHistory.slice(-100);
+
+    const instruction = task.config.subscriptionPrompt || task.prompt;
+    const topic = task.trigger?.topic || '(unknown)';
+    const eventsBlock = events
+      .map(e => `- ts=${e.ts}${e.dedupKey ? ` dedupKey=${e.dedupKey}` : ''}${e.sourceTaskId ? ` from=${e.sourceTaskId}` : ''}\n  payload: ${JSON.stringify(e.payload)}`)
+      .join('\n');
+
+    if (!task.config.subscriptionPrompt) task.config.subscriptionPrompt = instruction; // backfill
+    task.prompt =
+      `${instruction}\n\n---\n\n` +
+      `You are a subscription on topic \`${topic}\`. ${events.length} new event(s) have arrived since the last fire (delivered in order). ` +
+      `Treat each event's \`payload\` as the input you should act on. ` +
+      `If you publish downstream events, use done({emit:[…]}). ` +
+      `Call done with silent=true if no user-facing output is needed.\n\n` +
+      `Current time: ${new Date().toLocaleString('sv-SE').replace('T', ' ')}.\n\n` +
+      `Events:\n${eventsBlock}`;
+
+    if (!task.context) task.context = {};
+
+    task.logContext = {
+      taskId:    task.id,
+      runNumber: task.runCount,
+      topic,
+      eventCount: events.length,
+    };
+
+    const planResult = await runPlan(task);
+
+    // Publish any downstream events
+    await dispatchEmits(task, planResult.emit);
+
+    task.result = planResult.result || '';
+    if (planResult.files && Object.keys(planResult.files).length > 0) {
+      task.files = { ...(task.files || {}), ...planResult.files };
+    }
+    if (planResult.memory && typeof planResult.memory === 'object') {
+      const preserved = {};
+      for (const [k, v] of Object.entries(task.context)) {
+        if (k === 'history' || k.startsWith('__')) preserved[k] = v;
+      }
+      task.context = { ...preserved, ...planResult.memory };
+    }
+    if (planResult.runSummary) task.context.__runSummary = planResult.runSummary;
+    if (planResult.trajectory) task.context.__trajectory = planResult.trajectory;
+
+    // Restore original prompt for display
+    task.prompt = task.config.subscriptionPrompt || task.prompt;
+
+    task.consecutiveErrors = 0;
+    task.lastError = null;
+
+    if (await wasCancelled(task.id)) return;
+
+    if (task.result && task.channelId && !planResult.silent) {
+      await deliver(task, task.result);
+    }
+
+    // stopCondition met → auto-complete
+    if (planResult.stopReached) {
+      task.status    = 'completed';
+      task.nextRunAt = null;
+      await putTask(task, { skipSync: true });
+      await snapshotTaskRun(task);
+      return;
+    }
+  } catch (err) {
+    console.error('[task-manager] executeSubscriptionFire error:', task.id, err);
+    if (await wasCancelled(task.id)) return;
+    task.consecutiveErrors = (task.consecutiveErrors ?? 0) + 1;
+    task.lastError = err?.message ?? String(err);
+    // At-most-once: events were already consumed (cursor advanced in
+    // eventTick). We log the failure and return to waiting; the lost
+    // events are recorded in lastError.
+  }
+
+  // Return to waiting; no nextRunAt because next fire is event-driven.
+  if (task.status === 'failed') return;
+  task.status    = 'waiting';
+  task.nextRunAt = null;
+  await putTask(task, { skipSync: true });
+  await snapshotTaskRun(task);
+}
+
+/**
+ * Event tick: every 2 s, for each `waiting` subscription task:
+ *   - if trigger.expiresAt has passed, auto-complete it.
+ *   - else fetch new events on its topic since its cursor.
+ *   - if any, stash them on task.config.pendingEvents, advance cursor,
+ *     and enqueue for serial execution.
+ *
+ * At-most-once delivery: cursor advances here, before the fire. A crash
+ * in executeSubscriptionFire loses those events but cannot busy-loop
+ * (subsequent ticks see no new events on the topic).
+ */
+async function eventTick() {
+  try {
+    const nowIso = new Date().toISOString();
+    const waiting = await getTasksByStatus('waiting');
+    const subs = waiting.filter(t => t.type === 'subscription');
+    let enqueued = false;
+    for (const t of subs) {
+      // Wall-clock expiry
+      if (t.trigger?.expiresAt && t.trigger.expiresAt <= nowIso) {
+        t.status    = 'completed';
+        t.nextRunAt = null;
+        await putTask(t, { skipSync: true });
+        continue;
+      }
+
+      const topic = t.trigger?.topic;
+      if (!topic) continue;
+
+      const newEvents = await getEventsSince(topic, t.cursor);
+      if (newEvents.length === 0) {
+        // Detect cursor-lag-past-GC: cursor older than oldest line.
+        if (t.cursor) {
+          const oldest = await oldestEventTs(topic);
+          if (oldest && oldest > t.cursor) {
+            console.warn(`[task-manager] subscription ${t.id} on '${topic}' cursor=${t.cursor} is older than oldest event ${oldest}; fast-forwarding`);
+            t.cursor = oldest;
+            await putTask(t, { skipSync: true });
+          }
+        }
+        continue;
+      }
+
+      // Advance cursor BEFORE fire (at-most-once).
+      if (!t.config) t.config = {};
+      t.config.pendingEvents = newEvents;
+      t.cursor = newEvents[newEvents.length - 1].ts;
+      t.status = 'queued';
+      await putTask(t, { skipSync: true });
+      if (!readyQueue.includes(t.id)) readyQueue.push(t.id);
+      enqueued = true;
+    }
+    if (enqueued && !running) drainQueue();
+  } catch (err) {
+    console.error('[task-manager] eventTick error:', err);
+  }
+}
+
+/** Start the subscription/event scheduler. Call from app.js after rehydrate(). */
+export function startEventTick() {
+  if (eventTickTimer) return;
+  eventTick(); // immediate first check
+  eventTickTimer = setInterval(eventTick, EVENT_TICK_MS);
+  console.log('[task-manager] event tick started');
 }
