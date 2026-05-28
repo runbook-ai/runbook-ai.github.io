@@ -9,7 +9,7 @@
 
 import { loadSettings } from './settings.js';
 import { createAndEnqueue, cancelTask } from './task-manager.js';
-import { createTaskRecord, putTask } from './task-store.js';
+import { createTaskRecord, putTask, getAllTasks } from './task-store.js';
 import { buildWorkspaceContext } from './memory-store.js';
 import { readFile, writeFile, appendFile, listFiles, deleteFile, fileInfo, grepFiles } from './file-store.js';
 import { extensionCall as defaultExtensionCall } from './extension.js';
@@ -90,12 +90,32 @@ export async function act(prompt, savedFiles = {}, browseIndex = 1) {
     returnTaskState: true,
   };
 
+  // Snapshot the set of tabs currently watched by monitors so the browser
+  // agent refuses mutating actions on them (see callAction's tab-read-only
+  // gate in actions.js). The planner owns this -- the browser-agent layer
+  // does not reach into lib/ to compute it. Snapshot only; monitors created
+  // mid-browse aren't picked up until the next act() call (and the browser
+  // agent does not create monitors, so this is a non-issue in practice).
+  //
+  // Exclude terminal monitors (`completed`, `failed`): they no longer poll,
+  // so their tab no longer needs read-only protection. waiting/queued/
+  // running/paused all mean the user still expects the tab to stay clean.
+  const TERMINAL_MONITOR_STATUSES = new Set(['completed', 'failed']);
+  const protectedTabIds = (await getAllTasks())
+    .filter(t =>
+      t.type === 'monitor' &&
+      t.config?.tabId &&
+      !TERMINAL_MONITOR_STATUSES.has(t.status)
+    )
+    .map(t => t.config.tabId);
+
   // Always pass browseIndex; taskReturn uses it to name the result file
   // (`result-${browseIndex}.${ext}`) so multi-browse plans accumulate
   // result-1.html, result-2.html, … in task.files.
   const initialTaskState = {
     ...(Object.keys(savedFiles).length > 0 ? { savedFiles } : {}),
     browseIndex,
+    ...(protectedTabIds.length > 0 ? { protectedTabIds } : {}),
   };
 
   const result = await extensionCall('runHeadlessTaskWithConfig', { prompt, initialTaskState, config });
