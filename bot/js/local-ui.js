@@ -159,7 +159,6 @@ async function handleLocalCommand(content) {
   if (/^!help\s*$/i.test(content)) {
     appendMessage(
       'Commands:\n' +
-      '!run <runbook> - launch a saved runbook\n' +
       '!schedule <dur> <prompt> - recurring task\n' +
       '!tasks - list tasks\n' +
       '!cancel <id> - cancel\n' +
@@ -290,30 +289,6 @@ async function handleLocalCommand(content) {
         : `Task ${id} not found or is not paused.`,
       'bot',
     );
-    return;
-  }
-
-  const runMatch = content.match(/^!run\s+(\S+)(.*)?$/i);
-  if (runMatch) {
-    try {
-      const runbookName = runMatch[1].trim();
-      const extraPrompt = (runMatch[2] ?? '').trim();
-      const [mdRes, jsonRes] = await Promise.all([
-        fetch(`/runbooks/${runbookName}.md`),
-        fetch(`/runbooks/${runbookName}.json`),
-      ]);
-      if (!mdRes.ok) throw new Error(`Unknown runbook "${runbookName}".`);
-      const prompt = (extraPrompt ? `${extraPrompt}\n\n` : '') + await mdRes.text();
-      const config = jsonRes.ok ? JSON.parse(await jsonRes.text()) : {};
-      await createAndEnqueue({
-        prompt, config,
-        channelId: LOCAL_CHANNEL_ID,
-        replyToId: null,
-        createdBy: 'local',
-      });
-    } catch (err) {
-      appendMessage(`Error: ${err.message}`, 'system');
-    }
     return;
   }
 

@@ -335,7 +335,6 @@ async function handleDM(msg, botUserId, s) {
     const help =
       'Send me a message and I\'ll run it as a task.\n\n' +
       '**Commands:**\n' +
-      '`!run <runbook>` - launch a saved runbook\n' +
       '`!schedule <interval> <prompt>` - schedule a recurring task\n' +
       '`!tasks` - list ongoing + recent tasks\n' +
       '`!cancel <id>` - cancel a task\n' +
@@ -381,12 +380,6 @@ async function handleDM(msg, botUserId, s) {
   const resumeMatch = content.match(/^!resume\s+(\S+)\s*$/i);
   if (resumeMatch) {
     await handleResumeCommand(channelId, msg.id, normalizeId(resumeMatch[1]), s);
-    return;
-  }
-
-  const runMatch = content.match(/^!run\s+(\S+)(.*)?$/i);
-  if (runMatch) {
-    await handleRunCommand(msg, channelId, runMatch[1].trim(), (runMatch[2] ?? '').trim(), s);
     return;
   }
 
@@ -550,7 +543,6 @@ async function handleGroupCommand(msg, channelId, body, s) {
   if (/^!help\s*$/i.test(body)) {
     const help =
       '**Commands:**\n' +
-      '`!run <runbook>` - launch a saved runbook\n' +
       '`!schedule <interval> <prompt>` - schedule a recurring task\n' +
       '`!tasks` - list ongoing + recent tasks\n' +
       '`!cancel <id>` - cancel a task\n' +
@@ -599,12 +591,6 @@ async function handleGroupCommand(msg, channelId, body, s) {
     return;
   }
 
-  const runMatch = body.match(/^!run\s+(\S+)(.*)?$/i);
-  if (runMatch) {
-    await handleRunCommand(msg, channelId, runMatch[1].trim(), (runMatch[2] ?? '').trim(), s);
-    return;
-  }
-
   if (body.startsWith('!')) {
     const unknown = `Unknown command. Type \`!help\` to see available commands.`;
     await sendDiscordMessage(channelId, unknown, s.botToken, msg.id);
@@ -614,34 +600,6 @@ async function handleGroupCommand(msg, channelId, body, s) {
 }
 
 // ── Command handlers ────────────────────────────────────────────────────────
-
-async function handleRunCommand(msg, channelId, runbookName, extraPrompt, s) {
-  try {
-    const [mdRes, jsonRes] = await Promise.all([
-      fetch(`/runbooks/${runbookName}.md`),
-      fetch(`/runbooks/${runbookName}.json`),
-    ]);
-
-    if (!mdRes.ok) {
-      throw new Error(`Unknown runbook "${runbookName}". Try: craigslist-car-listings`);
-    }
-
-    const prompt = (extraPrompt ? `${extraPrompt}\n\n` : '') + await mdRes.text();
-    const config = jsonRes.ok ? JSON.parse(await jsonRes.text()) : {};
-
-    addReaction(channelId, msg.id, '%F0%9F%91%8D', s.botToken);
-    const task = await createAndEnqueue({
-      prompt,
-      config,
-      channelId,
-      replyToId: msg.id,
-      createdBy: msg.author?.username,
-    });
-  } catch (err) {
-    logSystem(err.message, 'error-msg');
-    try { await sendDiscordMessage(channelId, `Error: ${err.message}`, s.botToken, msg.id); } catch {}
-  }
-}
 
 async function handleScheduleCommand(msg, channelId, intervalStr, prompt, s) {
   const intervalMs = parseInterval(intervalStr);
