@@ -11,7 +11,7 @@ import { loadSettings } from './settings.js';
 import { createAndEnqueue, cancelTask } from './task-manager.js';
 import { createTaskRecord, putTask, getAllTasks } from './task-store.js';
 import { buildWorkspaceContext } from './memory-store.js';
-import { readFile, writeFile, appendFile, listFiles, deleteFile, fileInfo, grepFiles } from './file-store.js';
+import { readFile, writeFile, appendFile, listFiles, deleteFile, fileInfo } from './file-store.js';
 import { latestEventTs } from './event-store.js';
 import { extensionCall as defaultExtensionCall } from './extension.js';
 
@@ -355,16 +355,30 @@ const PLANNER_TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'grep_files',
-      description: 'Search through file contents for a keyword or pattern. Returns matching files with line numbers and snippets. Skips binary files.',
+      name: 'save_task_file',
+      description: 'Persist a per-task file (e.g. a screenshot or downloaded artifact from a browse step) to the durable file store at the given path. Use this to keep a browser-produced artifact across runs or share it with later tasks / GitHub sync. The task file must already exist in the current run\'s collected files (look at downloadedFiles in browse results).',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Search string or regex pattern (e.g. "/price.*\\d+/i")' },
-          prefix: { type: 'string', description: 'Optional path prefix to limit search scope' },
-          maxResults: { type: 'number', description: 'Max matching files to return. Default: 10' },
+          name: { type: 'string', description: 'Name of the task file (as listed in browse downloadedFiles, e.g. "screenshot.png")' },
+          path: { type: 'string', description: 'Destination path in the file store (e.g. "screenshots/2026-05-28.png")' },
         },
-        required: ['query'],
+        required: ['name', 'path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'load_task_file',
+      description: 'Stage a file from the durable file store into the current task\'s file collection so the next browse step can use it (e.g. uploadFile a stored asset, readImageFile a stored image). The browser agent only sees task files, not the file store, so use this to bridge.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Source path in the file store (e.g. "assets/avatar.png")' },
+          name: { type: 'string', description: 'Optional task-file name to expose to the next browse. Defaults to the path\'s basename.' },
+        },
+        required: ['path'],
       },
     },
   },
@@ -457,7 +471,8 @@ const DEFAULT_AGENTS = `You have access to:
   For create_monitor, the instruction must describe the ACTION on change only — do NOT include polling words like "every X seconds" or "monitor" or "keep checking" in the instruction, those are implicit from intervalMs. Example: instruction = "Summarize new emails from the last tick and draft replies", NOT "monitor every 10s and summarize".
 - **cancel_task**: Cancel a child task and all its descendants. Use when a child is no longer needed (e.g. user changed direction).
 - **run_native_agent** (only when configured): Delegate a self-contained subtask to a local CLI agent on the host (e.g. Claude Code, Gemini). Use for filesystem, shell, code-analysis work that does NOT need a browser. Faster than browse for non-web tasks. The native agent doesn't see this conversation — make the prompt fully self-contained.
-- **read_file / write_file / append_file / list_files / delete_file / file_info / grep_files**: Persistent file storage. Use to save reports, CSVs, data, images, etc. that persist across task runs. Use append_file for logs and CSVs where you add rows over time. Files are synced to GitHub.
+- **read_file / write_file / append_file / list_files / delete_file / file_info**: Persistent file storage. Use to save reports, CSVs, data, images, etc. that persist across task runs. Use append_file for logs and CSVs where you add rows over time. Files are synced to GitHub.
+- **save_task_file / load_task_file**: Bridge between browser-agent task files (per-run, e.g. screenshots and downloads from `browse`) and the persistent file store. `save_task_file` archives a browse artifact to durable storage; `load_task_file` stages a stored file so the next `browse` can upload it or view it as an image.
 - **done**: Finish the plan with a summary. Always populate these fields when relevant:
   - **memory**: structured data for future runs of THIS task (replaces previous memory entirely — include everything to keep)
   - **runSummary**: for recurring tasks, a cumulative prose summary covering ALL runs so far (you'll see the previous one on the next run — update it)
@@ -882,12 +897,41 @@ export async function runPlan(task) {
             break;
           }
 
-          case 'grep_files': {
-            console.log('[planner] grep_files:', args.query);
-            toolResult = await grepFiles(args.query, {
-              prefix: args.prefix || '',
-              maxResults: args.maxResults || 10,
+          case 'save_task_file': {
+            console.log('[planner] save_task_file:', args.name, '->', args.path);
+            const entry = collectedFiles[args.name];
+            if (!entry) {
+              toolResult = { error: `Task file not found: ${args.name}` };
+              break;
+            }
+            // Task files are always base64 (browser-agent's savedFiles schema).
+            const written = await writeFile(args.path, entry.base64, {
+              mimeType: entry.mimeType || 'application/octet-stream',
+              encoding: 'base64',
             });
+            toolResult = { saved: true, path: written.path, size: written.size };
+            break;
+          }
+
+          case 'load_task_file': {
+            console.log('[planner] load_task_file:', args.path);
+            const file = await readFile(args.path);
+            if (!file) {
+              toolResult = { error: `File not found: ${args.path}` };
+              break;
+            }
+            const name = args.name || args.path.split('/').pop();
+            // Browser-agent's savedFiles is base64-only; convert utf8 contents.
+            const base64 = file.encoding === 'base64'
+              ? file.content
+              : btoa(unescape(encodeURIComponent(file.content)));
+            collectedFiles[name] = {
+              name,
+              mimeType: file.mimeType || 'application/octet-stream',
+              base64,
+              size: file.size,
+            };
+            toolResult = { loaded: true, name, size: file.size };
             break;
           }
 
