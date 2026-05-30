@@ -799,20 +799,19 @@ export async function runPlan(task) {
             const label = args.label || 'Monitor';
             console.log('[planner] create_monitor:', label, 'every', intervalMs, 'ms');
 
-            // Get current tab from taskState (last entry is current)
+            // Use the browser's actually-active tab — what the user is looking
+            // at right now. taskState.tabs is empty for a fresh task even when
+            // the user has tabs open, so we deliberately don't consult it.
             let currentTab = null;
             try {
-              const state = await extensionCall('getTaskState', {});
-              const tabs = state.tabs || [];
-              if (tabs.length > 0) {
-                currentTab = tabs[tabs.length - 1];
-              }
+              const resp = await extensionCall('getCurrentBrowserTab', {});
+              if (resp && typeof resp.tabId === 'number') currentTab = resp;
             } catch (err) {
-              console.warn('[planner] create_monitor: getTaskState failed:', err.message);
+              console.warn('[planner] create_monitor: getCurrentBrowserTab failed:', err.message);
             }
 
             if (!currentTab) {
-              toolResult = { error: 'No active tab found. Navigate to the page you want to monitor first.' };
+              toolResult = { error: 'No active tab found. Open the page you want to monitor in a tab, then retry.' };
               break;
             }
 
