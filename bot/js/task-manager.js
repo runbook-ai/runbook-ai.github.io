@@ -16,7 +16,6 @@ import {
 } from './task-store.js';
 import { computeNextRun, computeBackoff } from './cron.js';
 import { runPlan, UserCancelledError } from './planner.js';
-import { appendDailyMemory } from './memory-store.js';
 import { runMonitorPoll } from './monitor.js';
 import { appendEvent, getEventsSince, oldestEventTs } from './event-store.js';
 
@@ -278,13 +277,6 @@ async function executeTask(task) {
     // Save cumulative run summary for recurring tasks
     if (planResult.runSummary) {
       task.context.__runSummary = planResult.runSummary;
-    }
-
-    // Flush learnings to global daily memory
-    if (planResult.learnings && Array.isArray(planResult.learnings) && planResult.learnings.length > 0) {
-      appendDailyMemory(planResult.learnings).catch(err => {
-        console.warn('[task-manager] failed to save learnings:', err);
-      });
     }
 
     // Save full planner trajectory (last run only)

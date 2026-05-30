@@ -13,7 +13,6 @@ import { getAllTasks, putTask } from './task-store.js';
 import {
   loadWorkspaceFile, saveWorkspaceFile, getWorkspaceFileTimestamp,
   getWorkspaceFileNames,
-  getAllDailyMemories, putDailyMemory,
 } from './memory-store.js';
 import { getAllFiles, putFile } from './file-store.js';
 
@@ -298,16 +297,6 @@ export async function bulkSync() {
     tree.push({ path: `workspace/${name}.json`, mode: '100644', type: 'blob', sha: blob.sha });
   }
 
-  // Add daily memory files
-  const dailyMemories = await getAllDailyMemories();
-  for (const mem of dailyMemories) {
-    const blob = await githubPost('git/blobs', {
-      content: btoa(unescape(encodeURIComponent(JSON.stringify(mem)))),
-      encoding: 'base64',
-    });
-    tree.push({ path: `memory/${mem.date}.json`, mode: '100644', type: 'blob', sha: blob.sha });
-  }
-
   // Add persistent files
   const allFiles = await getAllFiles();
   for (const file of allFiles) {
@@ -335,8 +324,8 @@ export async function bulkSync() {
       });
       shaCache.set(task.id, { sha: result.content.sha, filename });
     }
-    // Also bootstrap workspace + memory + file store files
-    for (const entry of tree.filter(e => e.path.startsWith('workspace/') || e.path.startsWith('memory/') || e.path.startsWith('files/'))) {
+    // Also bootstrap workspace + file store files
+    for (const entry of tree.filter(e => e.path.startsWith('workspace/') || e.path.startsWith('files/'))) {
       const blobData = await githubGet(`git/blobs/${entry.sha}`);
       await githubPut(`contents/${entry.path}`, {
         message: `sync ${entry.path}`,
@@ -363,7 +352,7 @@ export async function bulkSync() {
     const parentSha = latestRef?.object?.sha || commitSha;
 
     newCommit = await githubPost('git/commits', {
-      message: `bulk sync ${tasks.length} tasks + memory`,
+      message: `bulk sync ${tasks.length} tasks`,
       tree: newTree.sha,
       parents: [parentSha],
     });
@@ -393,7 +382,6 @@ export async function restore() {
 
   const taskBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('tasks/'));
   const wsBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('workspace/'));
-  const memoryBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('memory/'));
   const fileBlobs = tree.tree.filter(e => e.type === 'blob' && e.path.startsWith('files/'));
 
   const TASK_MAX_AGE_MS = 180 * 24 * 3_600_000; // 180 days — same as cron cleanup
@@ -447,21 +435,6 @@ export async function restore() {
     } else {
       skipped++;
     }
-  }
-
-  // Restore daily memory files
-  for (const blob of memoryBlobs) {
-    if (!blob.path.match(/^memory\/\d{4}-\d{2}-\d{2}\.json$/)) continue;
-    const blobData = await githubGet(`git/blobs/${blob.sha}`);
-    const json = decodeURIComponent(escape(atob(blobData.content)));
-    const remote = JSON.parse(json);
-    const memDate = new Date(remote.date + 'T00:00:00Z').getTime();
-    if (now - memDate > TASK_MAX_AGE_MS) {
-      skipped++;
-      continue;
-    }
-    await putDailyMemory(remote);
-    restored++;
   }
 
   // Restore persistent files (no TTL — files persist until deleted)

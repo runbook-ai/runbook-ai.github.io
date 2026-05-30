@@ -5,7 +5,7 @@ import { enqueueTask, rehydrate, setDeliveryHandler, setTypingHandler, setProces
 import { gcEvents } from './event-store.js';
 import { sendDiscordMessage, triggerTyping } from './discord.js';
 import { logMessage, showProcessing, hideProcessing } from './ui.js';
-import { loadWorkspaceFile, saveWorkspaceFile, getDailyMemories, clearDailyMemories } from './memory-store.js';
+import { loadWorkspaceFile, saveWorkspaceFile } from './memory-store.js';
 import { DEFAULT_SOUL, DEFAULT_AGENTS } from './planner.js';
 import { LOCAL_CHANNEL_ID, deliverToLocalUI, showLocalTyping } from './local-ui.js';
 import { startMonitorUI } from './monitor-ui.js';
@@ -301,8 +301,6 @@ document.getElementById('memoryToggle').addEventListener('click', () => {
   const open = hdr.classList.contains('open');
   hdr.classList.toggle('open', !open);
   body.classList.toggle('hidden', open);
-  // Refresh learnings list when opening
-  if (!open) renderLearnings();
 });
 
 // Workspace file editor
@@ -363,41 +361,6 @@ document.getElementById('resetWsFileBtn').addEventListener('click', () => {
   ok.textContent = 'Reset';
   ok.style.display = 'inline';
   setTimeout(() => { ok.style.display = 'none'; }, 2000);
-});
-
-// Render learnings list
-async function renderLearnings() {
-  const container = document.getElementById('learningsList');
-  const memories = await getDailyMemories(30);
-  const withEntries = memories.filter(m => m.entries && m.entries.length > 0);
-
-  if (withEntries.length === 0) {
-    container.innerHTML = '<div class="memory-empty">No learnings yet. The bot saves insights after completing tasks.</div>';
-    return;
-  }
-
-  container.innerHTML = '';
-  for (const m of withEntries) {
-    const count = m.entries.length;
-    const dateEl = document.createElement('div');
-    dateEl.className = 'memory-date';
-    dateEl.innerHTML = `<svg class="chevron-sm" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> ${m.date} (${count} ${count === 1 ? 'entry' : 'entries'})`;
-    dateEl.addEventListener('click', () => dateEl.classList.toggle('open'));
-
-    const entriesEl = document.createElement('div');
-    entriesEl.className = 'memory-entries';
-    entriesEl.textContent = m.entries.join('\n---\n');
-
-    container.appendChild(dateEl);
-    container.appendChild(entriesEl);
-  }
-}
-
-// Clear all learnings
-document.getElementById('clearLearningsBtn').addEventListener('click', async () => {
-  if (!confirm('Clear all learnings? This empties daily memory files. Click Sync Now to push to GitHub.')) return;
-  await clearDailyMemories();
-  renderLearnings();
 });
 
 // -- Auto-connect on load if credentials are already saved ---------------------

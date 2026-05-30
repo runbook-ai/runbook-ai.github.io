@@ -419,11 +419,6 @@ const PLANNER_TOOLS = [
             type: 'string',
             description: 'For recurring tasks: a cumulative summary of all runs so far including this one. You will see the previous runSummary on the next run — update it to cover all runs. Keep it concise but comprehensive.',
           },
-          learnings: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Key learnings to remember across all future tasks (e.g. user preferences, useful URLs, important facts). Each entry is one standalone insight.',
-          },
           silent: {
             type: 'boolean',
             description: 'Set to true to suppress sending the summary to the user. Use for recurring task runs with nothing new to report. Default: false (summary is always sent to user).',
@@ -455,7 +450,7 @@ const PLANNER_TOOLS = [
 const DEFAULT_SOUL = `You are Runbook AI, a bot that helps users automate tasks through a real browser. You can navigate websites, read pages, fill forms, scrape data, and monitor sites on a schedule.`;
 
 const DEFAULT_AGENTS = `You have access to:
-- **browse**: Execute a ONE-SHOT task in a real browser (navigate, read pages, fill forms, click). Each browse call is independent and synchronous — include all context needed for THIS single action in the prompt. Each call has a limited execution budget (~30 browser actions). NEVER put scheduling directives into a browse prompt — browse cannot poll, wait, or repeat. Phrases like "every 10 seconds", "monitor", "watch for changes", "keep checking", or "on new emails" DO NOT belong in a browse prompt and will be ignored (or cause the browser to waste its budget re-reading). Route any such request through \`create_monitor\` or \`set_schedule\` instead. The result may include a \`browserFindings\` array — review these and include any worth keeping in your \`learnings\`.
+- **browse**: Execute a ONE-SHOT task in a real browser (navigate, read pages, fill forms, click). Each browse call is independent and synchronous — include all context needed for THIS single action in the prompt. Each call has a limited execution budget (~30 browser actions). NEVER put scheduling directives into a browse prompt — browse cannot poll, wait, or repeat. Phrases like "every 10 seconds", "monitor", "watch for changes", "keep checking", or "on new emails" DO NOT belong in a browse prompt and will be ignored (or cause the browser to waste its budget re-reading). Route any such request through \`create_monitor\` or \`set_schedule\` instead.
 - **spawn_task**: Spawn a child task (one-shot or recurring). Child tasks run independently and do NOT message the user — only you (the parent) communicate with the user. You will see child task statuses automatically on subsequent runs via CHILD TASK STATUSES context.
 - **set_schedule**: Make the CURRENT task recurring so it re-runs on a wall-clock interval from scratch. Each run does a full browse + planner cycle. Good for periodic full re-fetches ("send me HN top 5 every morning", "check stock price twice a day"). The task keeps running until maxRuns is reached or done() is called with stopReached=true.
 - **create_monitor**: Create a watch on the CURRENT tab that cheaply polls its DOM and only fires the planner when content actually changes. Requires the tab to already be open (navigate with ONE browse call first, then call create_monitor). Good for reactive observation of a live page ("tell me when my Gmail has a new email", "watch this PR for status changes").
@@ -476,7 +471,6 @@ const DEFAULT_AGENTS = `You have access to:
 - **done**: Finish the plan with a summary. Always populate these fields when relevant:
   - **memory**: structured data for future runs of THIS task (replaces previous memory entirely — include everything to keep)
   - **runSummary**: for recurring tasks, a cumulative prose summary covering ALL runs so far (you'll see the previous one on the next run — update it)
-  - **learnings**: insights worth remembering across ALL future tasks (user preferences, useful URLs, key facts)
 
 Guidelines:
 - Break complex tasks into small, independent browser steps. Each browse prompt should be self-contained.
@@ -510,7 +504,7 @@ const DEFAULT_MAX_BROWSE = 5;
  * Run a multi-step plan for a task.
  *
  * @param {object} task - The task record
- * @returns {{ result: string, memory?: object, runSummary?: string, learnings?: string[], files?: object, stopReached?: boolean }}
+ * @returns {{ result: string, memory?: object, runSummary?: string, files?: object, stopReached?: boolean }}
  */
 export async function runPlan(task) {
   const scheduleNote = task.schedule ? ' This is a recurring task.' : '';
@@ -950,7 +944,6 @@ export async function runPlan(task) {
               result: args.summary,
               memory: args.memory || null,
               runSummary: args.runSummary || null,
-              learnings: args.learnings || null,
               silent: !!args.silent,
               trajectory: messages, browseTrajectories,
               files: collectedFiles,
@@ -989,7 +982,7 @@ export async function runPlan(task) {
   const DONE_ONLY = PLANNER_TOOLS.filter(t => t.function.name === 'done');
   messages.push({
     role: 'user',
-    content: 'Step limit reached. You MUST call done now with your best effort summary, including memory, runSummary, and learnings if applicable.',
+    content: 'Step limit reached. You MUST call done now with your best effort summary, including memory and runSummary if applicable.',
   });
   try {
     const forceResp = await think(messages, DONE_ONLY);
@@ -1001,7 +994,6 @@ export async function runPlan(task) {
           result: args.summary || 'Plan reached maximum steps.',
           memory: args.memory || null,
           runSummary: args.runSummary || null,
-          learnings: args.learnings || null,
           silent: !!args.silent,
           trajectory: messages, browseTrajectories,
           files: collectedFiles,
