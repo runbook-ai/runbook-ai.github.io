@@ -185,7 +185,7 @@ const PLANNER_TOOLS = [
           },
           trigger: {
             type: 'object',
-            description: 'Make this an EVENT-DRIVEN subscription instead of an immediate or scheduled run. The task sits in `waiting` and fires its prompt every time a matching event arrives on the topic (events come from other tasks calling emit_event). Mutually exclusive with `schedule` and `maxRuns`. Subscriptions auto-terminate via `stopCondition` (LLM-judged content) and/or `trigger.expiresAt` (wall-clock).',
+            description: 'Make this an EVENT-DRIVEN subscription instead of an immediate or scheduled run. The task sits in `waiting` and fires its prompt every time a matching event arrives on the topic (events come from other tasks calling emit_events). Mutually exclusive with `schedule` and `maxRuns`. Subscriptions auto-terminate via `stopCondition` (LLM-judged content) and/or `trigger.expiresAt` (wall-clock).',
             properties: {
               topic: { type: 'string', description: 'Topic name to subscribe to, e.g. "lead.found", "dealer.reply.received". Match exactly the topic a producer emits.' },
               expiresAt: { type: 'string', description: 'Optional ISO 8601 deadline. Subscription auto-completes at this time regardless of inbound event traffic. Use for "run for 7 days" style bounds.' },
@@ -402,16 +402,26 @@ const PLANNER_TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'emit_event',
-      description: 'Publish ONE event to a topic. Subscribers (spawn_task({trigger:{topic}})) will fire on it. The runtime sets ts (real UTC) and deduplicates by (topic, dedupKey) over the last 24h; you do NOT choose ts. This is the ONLY way to publish events — do NOT append directly to events/*.jsonl, do NOT pass events via done. Call once per event.',
+      name: 'emit_events',
+      description: 'Publish one or more events. Subscribers (spawn_task({trigger:{topic}})) fire on matching topics. The runtime sets ts (real UTC) per event and deduplicates each by (topic, dedupKey) over the last 24h; you do NOT choose ts. This is the ONLY way to publish events — do NOT append directly to events/*.jsonl, do NOT pass events via done. Batch when natural (e.g. all results from one browse step in a single call). Keep each call ≤50 events; for larger batches, split across multiple calls.',
       parameters: {
         type: 'object',
         properties: {
-          topic:    { type: 'string', description: 'Topic name, e.g. "post.discovered". Use the same name producers and subscribers agree on.' },
-          payload:  { type: 'object', description: 'Event payload as JSON.' },
-          dedupKey: { type: 'string', description: 'Optional. If the same (topic, dedupKey) was emitted in the last 24h, this call is silently a no-op.' },
+          events: {
+            type: 'array',
+            description: 'Array of events to publish in order. Length 1..50.',
+            items: {
+              type: 'object',
+              properties: {
+                topic:    { type: 'string', description: 'Topic name, e.g. "post.discovered". Producers and subscribers must agree.' },
+                payload:  { type: 'object', description: 'Event payload as JSON.' },
+                dedupKey: { type: 'string', description: 'Optional. If the same (topic, dedupKey) was emitted in the last 24h, that one event is silently skipped (other events in the array still publish).' },
+              },
+              required: ['topic', 'payload'],
+            },
+          },
         },
-        required: ['topic', 'payload'],
+        required: ['events'],
       },
     },
   },
@@ -442,6 +452,10 @@ const PLANNER_TOOLS = [
           stopReached: {
             type: 'boolean',
             description: 'Set to true when the stop condition for this recurring task has been met. The task will auto-complete and stop recurring.',
+          },
+          cursor: {
+            type: 'string',
+            description: 'SUBSCRIPTION TASKS ONLY: ISO timestamp of the LAST event you actually processed. The runtime advances the subscription cursor to this value; any events with ts > this stay in the queue and trigger another fire on the next event tick (typically within 2 s). Omit when you processed every event in the batch (cursor advances to the batch\'s last event automatically). Use this to process one event at a time: handle events[0], call done({cursor: events[0].ts}), let the next fire handle events[1]. The runtime clamps the value to [previousCursor, batchLastTs] — out-of-range values are silently corrected.',
           },
         },
         required: ['summary'],
@@ -931,26 +945,35 @@ export async function runPlan(task) {
             break;
           }
 
-          case 'emit_event': {
-            if (!args.topic || typeof args.topic !== 'string') {
-              toolResult = { error: 'emit-event-invalid', message: 'topic is required' };
+          case 'emit_events': {
+            if (!Array.isArray(args.events) || args.events.length === 0) {
+              toolResult = { error: 'emit-events-invalid', message: 'events must be a non-empty array' };
               break;
             }
-            if (!args.payload || typeof args.payload !== 'object') {
-              toolResult = { error: 'emit-event-invalid', message: 'payload (object) is required' };
-              break;
+            const results = [];
+            for (const e of args.events) {
+              if (!e || typeof e !== 'object' || !e.topic || typeof e.topic !== 'string') {
+                results.push({ ok: false, error: 'invalid-event', detail: 'topic missing or not a string' });
+                continue;
+              }
+              if (!e.payload || typeof e.payload !== 'object') {
+                results.push({ ok: false, error: 'invalid-event', detail: 'payload missing or not an object' });
+                continue;
+              }
+              try {
+                const row = await appendEvent({
+                  topic: e.topic,
+                  payload: e.payload,
+                  dedupKey: e.dedupKey || undefined,
+                  sourceTaskId: task.id,
+                });
+                results.push({ ok: true, topic: e.topic, ts: row.ts });
+              } catch (err) {
+                results.push({ ok: false, error: 'append-failed', detail: err?.message || String(err) });
+              }
             }
-            try {
-              const row = await appendEvent({
-                topic: args.topic,
-                payload: args.payload,
-                dedupKey: args.dedupKey || undefined,
-                sourceTaskId: task.id,
-              });
-              toolResult = { ok: true, ts: row.ts, deduped: row.dedupKey && row.ts && new Date(row.ts).getTime() < Date.now() - 100 };
-            } catch (err) {
-              toolResult = { error: 'emit-event-failed', message: err?.message || String(err) };
-            }
+            const ok = results.filter(r => r.ok).length;
+            toolResult = { published: ok, total: results.length, results };
             break;
           }
 
@@ -974,6 +997,7 @@ export async function runPlan(task) {
               trajectory: messages, browseTrajectories,
               files: collectedFiles,
               stopReached: !!args.stopReached,
+              cursor: typeof args.cursor === 'string' ? args.cursor : null,
             };
           }
 
@@ -1023,6 +1047,7 @@ export async function runPlan(task) {
           trajectory: messages, browseTrajectories,
           files: collectedFiles,
           stopReached: !!args.stopReached,
+          cursor: typeof args.cursor === 'string' ? args.cursor : null,
         };
       }
     }

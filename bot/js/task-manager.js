@@ -17,7 +17,7 @@ import {
 import { computeNextRun, computeBackoff } from './cron.js';
 import { runPlan, UserCancelledError } from './planner.js';
 import { runMonitorPoll } from './monitor.js';
-import { getEventsSince, oldestEventTs } from './event-store.js';
+import { appendEvent, getEventsSince, oldestEventTs } from './event-store.js';
 
 // ── Task run snapshot ─────────────────────────────────────────────────────
 
@@ -817,7 +817,10 @@ let eventTickTimer  = null;
 async function executeSubscriptionFire(task) {
   if (!task.config) task.config = {};
   const events = task.config.pendingEvents || [];
+  const batchLastTs = task.config.pendingBatchLastTs || (events.length ? events[events.length - 1].ts : null);
   delete task.config.pendingEvents;
+  delete task.config.pendingBatchLastTs;
+  const cursorBeforeFire = task.cursor;
 
   if (events.length === 0) {
     // Defensive: nothing to fire on; bounce back to waiting.
@@ -844,7 +847,7 @@ async function executeSubscriptionFire(task) {
       `${instruction}\n\n---\n\n` +
       `You are a subscription on topic \`${topic}\`. ${events.length} new event(s) have arrived since the last fire (delivered in order). ` +
       `Treat each event's \`payload\` as the input you should act on. ` +
-      `If you publish downstream events, call emit_event once per event. ` +
+      `If you publish downstream events, call emit_events with an array (batch when natural). ` +
       `Call done with silent=true if no user-facing output is needed.\n\n` +
       `Current time: ${new Date().toLocaleString('sv-SE').replace('T', ' ')}.\n\n` +
       `Events:\n${eventsBlock}`;
@@ -886,6 +889,18 @@ async function executeSubscriptionFire(task) {
       await deliver(task, task.result);
     }
 
+    // At-least-once cursor advance: declared cursor (from done({cursor})), else
+    // batch's last ts. Clamp to [cursorBeforeFire, batchLastTs] — never backwards,
+    // never beyond what we delivered.
+    const declared = planResult.cursor;
+    let newCursor = batchLastTs;
+    if (declared && typeof declared === 'string') {
+      if (declared < cursorBeforeFire) newCursor = cursorBeforeFire;
+      else if (declared > batchLastTs)  newCursor = batchLastTs;
+      else                              newCursor = declared;
+    }
+    task.cursor = newCursor;
+
     // stopCondition met → auto-complete
     if (planResult.stopReached) {
       task.status    = 'completed';
@@ -899,9 +914,32 @@ async function executeSubscriptionFire(task) {
     if (await wasCancelled(task.id)) return;
     task.consecutiveErrors = (task.consecutiveErrors ?? 0) + 1;
     task.lastError = err?.message ?? String(err);
-    // At-most-once: events were already consumed (cursor advanced in
-    // eventTick). We log the failure and return to waiting; the lost
-    // events are recorded in lastError.
+
+    // At-least-once: cursor was NOT advanced in eventTick. By default we leave
+    // it as-is so the same batch re-fires next tick. Poison-event protection:
+    // after 3 consecutive failures on the same batch, advance past the batch
+    // and emit an anomaly so the failure surfaces.
+    if ((task.consecutiveErrors ?? 0) >= 3 && batchLastTs) {
+      console.warn(`[task-manager] subscription ${task.id}: 3 consecutive failures on batch ending ${batchLastTs}; advancing cursor past batch and emitting anomaly`);
+      task.cursor = batchLastTs;
+      try {
+        await appendEvent({
+          topic: 'anomaly.flagged',
+          payload: {
+            severity: 'critical',
+            source: 'subscription-runtime',
+            kind: 'subscription-batch-poison',
+            detail: `Subscription ${task.id} on '${task.trigger?.topic}' failed 3x on batch of ${events.length} events ending ${batchLastTs}. Cursor advanced past batch to break the loop.`,
+            suggestedAction: 'Investigate task.lastError; the events may contain unprocessable input or the subscription prompt may have a bug.',
+          },
+          dedupKey: `batch-poison-${task.id}-${batchLastTs}`,
+          sourceTaskId: task.id,
+        });
+      } catch (anomalyErr) {
+        console.error('[task-manager] failed to emit batch-poison anomaly:', anomalyErr);
+      }
+      task.consecutiveErrors = 0;
+    }
   }
 
   // Return to waiting; no nextRunAt because next fire is event-driven.
@@ -955,10 +993,11 @@ async function eventTick() {
         continue;
       }
 
-      // Advance cursor BEFORE fire (at-most-once).
+      // At-least-once: cursor advances AFTER fire success (see executeSubscriptionFire).
+      // Stash events + last-event ts; fire will use these to decide cursor advance.
       if (!t.config) t.config = {};
       t.config.pendingEvents = newEvents;
-      t.cursor = newEvents[newEvents.length - 1].ts;
+      t.config.pendingBatchLastTs = newEvents[newEvents.length - 1].ts;
       t.status = 'queued';
       await putTask(t, { skipSync: true });
       if (!readyQueue.includes(t.id)) readyQueue.push(t.id);
