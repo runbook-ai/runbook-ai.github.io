@@ -12,7 +12,7 @@ import { createAndEnqueue, cancelTask } from './task-manager.js';
 import { createTaskRecord, putTask, getAllTasks } from './task-store.js';
 import { buildWorkspaceContext } from './memory-store.js';
 import { readFile, writeFile, appendFile, listFiles, deleteFile, fileInfo } from './file-store.js';
-import { latestEventTs } from './event-store.js';
+import { latestEventTs, appendEvent } from './event-store.js';
 import { extensionCall as defaultExtensionCall } from './extension.js';
 
 // Pluggable action runner. Bot page uses the default (chrome.runtime.sendMessage
@@ -402,6 +402,22 @@ const PLANNER_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'emit_event',
+      description: 'Publish ONE event to a topic immediately, without waiting for done(). Subscribers (spawn_task({trigger:{topic}})) will see it. Use this when emitting many events from one task — the runtime sets ts and dedup-checks; you do NOT choose ts. Prefer this over append_file on events/*.jsonl for emitting (raw append_file bypasses dedup and ts is wrong). Use done({emit:[]}) only for small batches (≤4 events) where atomicity with done matters.',
+      parameters: {
+        type: 'object',
+        properties: {
+          topic:    { type: 'string', description: 'Topic name, e.g. "post.discovered". Use the same name producers and subscribers agree on.' },
+          payload:  { type: 'object', description: 'Event payload as JSON.' },
+          dedupKey: { type: 'string', description: 'Optional. If the same (topic, dedupKey) was emitted in the last 24h, this call is silently a no-op.' },
+        },
+        required: ['topic', 'payload'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'done',
       description: 'The plan is complete. Return the final summary and any data to remember. For recurring scheduled tasks, set stopReached to true when the stop condition has been met so the task auto-completes.',
       parameters: {
@@ -533,7 +549,7 @@ export async function runPlan(task) {
     memory,
     participantNote,
     personalNotesNote,
-    `\n\nCurrent date time: ${new Date().toString()}\nRun #${task.runCount} of this task.${scheduleNote}`,
+    `\n\nCurrent date time: ${new Date().toString()}\nCurrent UTC ISO: ${new Date().toISOString()}\nRun #${task.runCount} of this task.${scheduleNote}`,
   ].join('');
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -925,6 +941,29 @@ export async function runPlan(task) {
               size: file.size,
             };
             toolResult = { loaded: true, name, size: file.size };
+            break;
+          }
+
+          case 'emit_event': {
+            if (!args.topic || typeof args.topic !== 'string') {
+              toolResult = { error: 'emit-event-invalid', message: 'topic is required' };
+              break;
+            }
+            if (!args.payload || typeof args.payload !== 'object') {
+              toolResult = { error: 'emit-event-invalid', message: 'payload (object) is required' };
+              break;
+            }
+            try {
+              const row = await appendEvent({
+                topic: args.topic,
+                payload: args.payload,
+                dedupKey: args.dedupKey || undefined,
+                sourceTaskId: task.id,
+              });
+              toolResult = { ok: true, ts: row.ts, deduped: row.dedupKey && row.ts && new Date(row.ts).getTime() < Date.now() - 100 };
+            } catch (err) {
+              toolResult = { error: 'emit-event-failed', message: err?.message || String(err) };
+            }
             break;
           }
 
