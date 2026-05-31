@@ -17,7 +17,7 @@ import {
 import { computeNextRun, computeBackoff } from './cron.js';
 import { runPlan, UserCancelledError } from './planner.js';
 import { runMonitorPoll } from './monitor.js';
-import { appendEvent, getEventsSince, oldestEventTs } from './event-store.js';
+import { getEventsSince, oldestEventTs } from './event-store.js';
 
 // ── Task run snapshot ─────────────────────────────────────────────────────
 
@@ -97,33 +97,6 @@ export function setProcessingHandlers({ onStart, onStop } = {}) {
 
 function showProcessing(task) { if (processingStartFn) processingStartFn(task); }
 function hideProcessing(task) { if (processingStopFn)  processingStopFn(task);  }
-
-// ── Emit dispatch ──────────────────────────────────────────────────────────
-
-/**
- * Persist events from a planner result. Called from executeTask /
- * executeMonitorFire / executeSubscriptionFire after runPlan resolves.
- * Failures here must not roll back the run — they're logged and swallowed.
- */
-async function dispatchEmits(task, emits) {
-  if (!Array.isArray(emits) || emits.length === 0) return;
-  for (const e of emits) {
-    if (!e || typeof e !== 'object' || !e.topic) {
-      console.warn('[task-manager] skipping malformed emit:', e);
-      continue;
-    }
-    try {
-      await appendEvent({
-        topic:        e.topic,
-        payload:      e.payload ?? {},
-        dedupKey:     e.dedupKey || undefined,
-        sourceTaskId: task.id,
-      });
-    } catch (err) {
-      console.error('[task-manager] appendEvent failed for', e.topic, err);
-    }
-  }
-}
 
 // ── Serial queue ────────────────────────────────────────────────────────────
 
@@ -250,12 +223,6 @@ async function executeTask(task) {
     task.result            = planResult.result || 'Task completed with no result.';
     task.consecutiveErrors = 0;
     task.lastError         = null;
-
-    // Publish any events the planner produced via done({emit:[…]}).
-    // Done before files/memory persistence so a downstream subscription
-    // could see the events even if the post-run housekeeping below
-    // throws — appendEvent failures don't affect the run.
-    await dispatchEmits(task, planResult.emit);
 
     // Persist files that accumulated during this run (downloaded artifacts +
     // result-N.* files written by worker taskReturn). Merged so previously
@@ -753,9 +720,6 @@ async function executeMonitorFire(task) {
 
     const planResult = await runPlan(task);
 
-    // Publish any events emitted by this fire.
-    await dispatchEmits(task, planResult.emit);
-
     // Persist result and update conversation history
     task.result = planResult.result || '';
     if (planResult.files && Object.keys(planResult.files).length > 0) {
@@ -880,7 +844,7 @@ async function executeSubscriptionFire(task) {
       `${instruction}\n\n---\n\n` +
       `You are a subscription on topic \`${topic}\`. ${events.length} new event(s) have arrived since the last fire (delivered in order). ` +
       `Treat each event's \`payload\` as the input you should act on. ` +
-      `If you publish downstream events, use done({emit:[…]}). ` +
+      `If you publish downstream events, call emit_event once per event. ` +
       `Call done with silent=true if no user-facing output is needed.\n\n` +
       `Current time: ${new Date().toLocaleString('sv-SE').replace('T', ' ')}.\n\n` +
       `Events:\n${eventsBlock}`;
@@ -895,9 +859,6 @@ async function executeSubscriptionFire(task) {
     };
 
     const planResult = await runPlan(task);
-
-    // Publish any downstream events
-    await dispatchEmits(task, planResult.emit);
 
     task.result = planResult.result || '';
     if (planResult.files && Object.keys(planResult.files).length > 0) {

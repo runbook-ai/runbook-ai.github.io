@@ -185,7 +185,7 @@ const PLANNER_TOOLS = [
           },
           trigger: {
             type: 'object',
-            description: 'Make this an EVENT-DRIVEN subscription instead of an immediate or scheduled run. The task sits in `waiting` and fires its prompt every time a matching event arrives on the topic (events come from other tasks calling done({emit:[…]})). Mutually exclusive with `schedule` and `maxRuns`. Subscriptions auto-terminate via `stopCondition` (LLM-judged content) and/or `trigger.expiresAt` (wall-clock).',
+            description: 'Make this an EVENT-DRIVEN subscription instead of an immediate or scheduled run. The task sits in `waiting` and fires its prompt every time a matching event arrives on the topic (events come from other tasks calling emit_event). Mutually exclusive with `schedule` and `maxRuns`. Subscriptions auto-terminate via `stopCondition` (LLM-judged content) and/or `trigger.expiresAt` (wall-clock).',
             properties: {
               topic: { type: 'string', description: 'Topic name to subscribe to, e.g. "lead.found", "dealer.reply.received". Match exactly the topic a producer emits.' },
               expiresAt: { type: 'string', description: 'Optional ISO 8601 deadline. Subscription auto-completes at this time regardless of inbound event traffic. Use for "run for 7 days" style bounds.' },
@@ -403,7 +403,7 @@ const PLANNER_TOOLS = [
     type: 'function',
     function: {
       name: 'emit_event',
-      description: 'Publish ONE event to a topic immediately, without waiting for done(). Subscribers (spawn_task({trigger:{topic}})) will see it. Use this when emitting many events from one task — the runtime sets ts and dedup-checks; you do NOT choose ts. Prefer this over append_file on events/*.jsonl for emitting (raw append_file bypasses dedup and ts is wrong). Use done({emit:[]}) only for small batches (≤4 events) where atomicity with done matters.',
+      description: 'Publish ONE event to a topic. Subscribers (spawn_task({trigger:{topic}})) will fire on it. The runtime sets ts (real UTC) and deduplicates by (topic, dedupKey) over the last 24h; you do NOT choose ts. This is the ONLY way to publish events — do NOT append directly to events/*.jsonl, do NOT pass events via done. Call once per event.',
       parameters: {
         type: 'object',
         properties: {
@@ -442,19 +442,6 @@ const PLANNER_TOOLS = [
           stopReached: {
             type: 'boolean',
             description: 'Set to true when the stop condition for this recurring task has been met. The task will auto-complete and stop recurring.',
-          },
-          emit: {
-            type: 'array',
-            description: 'Events to publish at task completion. Tasks subscribed to a matching topic via spawn_task({trigger:{topic}}) will fire with the payload. Use to chain reactive work without binding to specific child IDs. Recurring/monitor tasks emit per fire. Choose narrow, specific topic names — routing happens at the producer side, subscribers cannot filter beyond topic match.',
-            items: {
-              type: 'object',
-              properties: {
-                topic:    { type: 'string', description: 'Topic name, e.g. "lead.found", "dealer.reply.received".' },
-                payload:  { type: 'object', description: 'Event payload — any JSON. Subscribers see this in the fire prompt.' },
-                dedupKey: { type: 'string', description: 'Optional. If the same (topic, dedupKey) was emitted within 24h, this emit is dropped silently.' },
-              },
-              required: ['topic', 'payload'],
-            },
           },
         },
         required: ['summary'],
@@ -978,7 +965,7 @@ export async function runPlan(task) {
           }
 
           case 'done': {
-            console.log('[planner] done', args.stopReached ? '(stop condition reached)' : '', args.silent ? '(silent)' : '', Array.isArray(args.emit) ? `(emit ${args.emit.length})` : '');
+            console.log('[planner] done', args.stopReached ? '(stop condition reached)' : '', args.silent ? '(silent)' : '');
             return {
               result: args.summary,
               memory: args.memory || null,
@@ -987,7 +974,6 @@ export async function runPlan(task) {
               trajectory: messages, browseTrajectories,
               files: collectedFiles,
               stopReached: !!args.stopReached,
-              emit: Array.isArray(args.emit) ? args.emit : null,
             };
           }
 
@@ -1037,7 +1023,6 @@ export async function runPlan(task) {
           trajectory: messages, browseTrajectories,
           files: collectedFiles,
           stopReached: !!args.stopReached,
-          emit: Array.isArray(args.emit) ? args.emit : null,
         };
       }
     }
