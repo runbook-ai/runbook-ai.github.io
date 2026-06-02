@@ -1,0 +1,14 @@
+{
+  "title": "Reddit Engagement Agent",
+  "description": "Discovers new posts in technical subreddits, decides which are worth a substantive comment, posts under your Reddit account, monitors for mod actions and replies, and pages you if anything goes wrong.",
+  "note": "Make sure you're logged into Reddit in this browser BEFORE clicking Run. The agent comments under whatever account is currently signed in. It runs continuously — discover every 4h, picker fires on new posts, comment health check every 4h.",
+  "params": [
+    { "name": "account_handle",   "label": "Your Reddit handle (no u/ prefix)",                       "type": "text",   "default": "FanZestyclose2521" },
+    { "name": "subreddits",       "label": "Comma-separated subreddits to engage in",                  "type": "text",   "default": "LocalLLaMA,singularity,AI_Agents,MachineLearning,ChatGPTCoding,LangChain,programming,webdev,devops" },
+    { "name": "per_sub_per_24h",  "label": "Max comments per subreddit per 24h",                       "type": "number", "default": 2 },
+    { "name": "per_account_per_24h", "label": "Max comments per account per 24h",                       "type": "number", "default": 10 },
+    { "name": "min_seconds_between", "label": "Min seconds between any two comments",                   "type": "number", "default": 600 },
+    { "name": "discover_interval_min", "label": "Discover interval (minutes, ≥60)",                     "type": "number", "default": 240 },
+    { "name": "comment_health_interval_min", "label": "Comment health check interval (minutes, ≥60)",   "type": "number", "default": 240 }
+  ]
+}
