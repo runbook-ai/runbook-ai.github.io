@@ -24,6 +24,11 @@ comment-health (every 4h, walks comments-posted.csv last-7-days)
   ──emit──▶ comment.removed   (mod removal)
   ──emit──▶ anomaly.flagged   (shadowban, page-error, unusual engagement)
 
+inbox-monitor (every 2h, polls Gmail for noreply@redditmail.com mail)
+  ──emit──▶ anomaly.flagged severity=CRITICAL kind=account-banned (real bans go via email, not Reddit's web inbox — we missed r/ML permaban without this on 2026-06-02)
+  ──emit──▶ anomaly.flagged severity=CRITICAL kind=mod-message-direct
+  ──emit──▶ anomaly.flagged severity=WARN     kind=comment-removed-by-mod
+
 any task ──emit──▶ anomaly.flagged ──▶ escalator (subscription)
                                           ──cancel-upstream + page user on CRITICAL
                                           ──batch into anomaly-queue.json on WARN
