@@ -5,6 +5,7 @@
   "params": [
     { "name": "account_handle",   "label": "Your Reddit handle (no u/ prefix)",                       "type": "text",   "default": "FanZestyclose2521" },
     { "name": "subreddits",       "label": "Comma-separated subreddits to engage in",                  "type": "text",   "default": "LocalLLaMA,singularity,AI_Agents,ChatGPTCoding,LangChain,devops" },
+    { "name": "subreddits_per_fire", "label": "Subreddits to scan per discover fire (rotates through the list across fires; keeps fire under maxBrowse=5)", "type": "number", "default": 3 },
     { "name": "per_sub_per_24h",  "label": "Max comments per subreddit per 24h",                       "type": "number", "default": 2 },
     { "name": "per_account_per_24h", "label": "Max comments per account per 24h",                       "type": "number", "default": 10 },
     { "name": "min_seconds_between", "label": "Min seconds between any two comments",                   "type": "number", "default": 600 },

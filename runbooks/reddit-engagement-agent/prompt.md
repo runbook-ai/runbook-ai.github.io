@@ -91,6 +91,7 @@ The subordinates will split `allowed_csv` on commas and trim each entry to get t
   "platforms": ["reddit"],
   "reddit": {
     "subreddits_csv": "{{subreddits}}",
+    "subredditsPerFire": {{subreddits_per_fire}},
     "sortBy": "new",
     "maxPostsPerSubredditPerRun": 25
   },
@@ -107,13 +108,23 @@ The subordinates will split `allowed_csv` on commas and trim each entry to get t
 ### File: prompts/discover.md
 
 <<<BEGIN prompts/discover.md>>>
-You are the DISCOVER task for the Reddit engagement bot. Hourly-ish schedule. Follow EXACTLY these steps each fire.
+You are the DISCOVER task for the Reddit engagement bot. Recurring schedule (every {{discover_interval_min}} min). Each fire scans a ROTATING SUBSET of the subreddit list (not the whole list) to stay within the browser-agent budget. Follow EXACTLY these steps each fire.
 
 ## Step 1 — Load configuration
 
-read_file: discover-config.json, subreddit-allowlist.json, discover-state.json (treat not-found as `{"reddit":{},"emptyStreak":0}`). Split `discover-config.json.reddit.subreddits_csv` on commas + trim to get the subreddit list.
+read_file: discover-config.json, subreddit-allowlist.json, discover-state.json (treat not-found as `{"reddit":{},"emptyStreak":0,"rotationIndex":0}`). Split `discover-config.json.reddit.subreddits_csv` on commas + trim to get the **full** subreddit list. Read `discover-config.json.reddit.subredditsPerFire` (the rotation window size).
 
-## Step 2 — For each subreddit in the list, IN ORDER
+## Step 2 — Pick this fire's rotation window
+
+Let `N = subredditsPerFire` (typically 3), `total = fullList.length`, `idx = state.rotationIndex || 0`.
+
+- If `N >= total`: scan everything — `thisFireSubs = fullList`.
+- Else: scan a sliding window of size N starting at idx, wrapping around the end of the list:
+  `thisFireSubs = [fullList[(idx + i) % total] for i in 0..N-1]`.
+
+After the fire completes, advance the index by N (modulo total) and persist it in state. This guarantees every subreddit gets scanned roughly every `ceil(total / N)` fires.
+
+## Step 3 — For each subreddit in `thisFireSubs`, IN ORDER
 
 For each subreddit S:
 
@@ -146,38 +157,40 @@ e. Append one row per kept post to discover-log.csv via append_file (create with
 
 f. Update state.reddit[S] = the MAX postedAt seen this run for that subreddit (regardless of whether kept). If the browse step itself failed, do NOT update the cursor.
 
-## Step 3 — Anomaly handling
+## Step 4 — Anomaly handling
 
 If a subreddit browse failed with: login wall, "doing that too much", private/banned community, 5xx — call `emit_events` with:
 - `topic: "anomaly.flagged"`
 - `payload: {severity:"critical"|"warn", source:"discover", kind:"<login-required|rate-limit-platform|subreddit-unavailable|http-5xx>", detail:"<sub + error excerpt>", suggestedAction:"<short hint>"}`
 - `dedupKey: "discover-<S>-<kind>-<UTC date>"`
 
-Continue with remaining subreddits.
+Continue with remaining subreddits in the window.
 
-## Step 4 — Empty-streak detection
+## Step 5 — Empty-streak detection
 
-After all subreddits processed: count the events you emitted this run (track it locally). If 0:
+After all subreddits IN THIS FIRE'S WINDOW are processed: count the events you emitted this run (track it locally). If 0:
 - state.emptyStreak = (previous emptyStreak || 0) + 1
 - If state.emptyStreak >= 3: `emit_events` an anomaly with kind="discover-empty-streak", severity="warn"
 Else:
 - state.emptyStreak = 0
 
-## Step 5 — Persist state and done
+## Step 6 — Persist state and done
 
-write_file discover-state.json with the new state object.
+Update `state.rotationIndex = (idx + N) % total` so the next fire picks up where this one left off.
+
+write_file discover-state.json with the new state object (including reddit cursors, emptyStreak, rotationIndex).
 
 Call done with:
-- summary: "Discover run <N>: processed <X>/<total> subs, <Y> events appended, <Z> anomalies"
+- summary: "Discover run <N>: window=[<thisFireSubs joined>] (rotated to idx=<new>), <Y> events appended, <Z> anomalies"
 - silent: false (one-line summary visible; helps me supervise)
-- memory: {lastRunAt: "<now>", emptyStreak: state.emptyStreak}
-- runSummary: prepend a one-line "Run #<N> (<short date>): <Y> events, <Z> anomalies" to whatever prior runSummary you saw, keeping the last 12 lines.
+- memory: {lastRunAt: "<now>", emptyStreak: state.emptyStreak, rotationIndex: state.rotationIndex}
+- runSummary: prepend one-line "Run #<N> (<short date>): window=[<subs>], <Y> events" to prior runSummary, keeping the last 12 lines.
 
 ## Strict rules
 
-- **You MUST process ALL subreddits in the list before calling done. NO EXCEPTIONS.** Even if a subreddit has no new matching posts, you still browse it, update its cursor, and move to the next. Calling done with fewer than the full list processed = task FAILED. Your maxBrowse budget exceeds the list size, so budget is not a constraint.
-- After each subreddit's browse + emits, IMMEDIATELY move to the next. Do not pause, do not summarize partial progress, do not call done. You only call done ONCE, after all subreddits are done.
-- Before calling done, verify: `Object.keys(state.reddit).length >= subreddits.length`. If not, you have skipped some — go back and do them.
+- **You MUST process every subreddit in `thisFireSubs` (the rotation window) before calling done.** Calling done with fewer processed = task FAILED. The window size is bounded so the budget always fits.
+- After each subreddit's browse + emits, IMMEDIATELY move to the next subreddit in the window. Do not pause, do not summarize partial progress, do not call done. You only call done ONCE, after the whole window is done.
+- Do NOT scan subreddits OUTSIDE the rotation window for this fire — the window is fixed at Step 2 and rotation across fires is what gives full coverage.
 - **Use `emit_events` for ALL events. Do NOT use done({emit:[...]}) and do NOT use append_file on events/*.jsonl**. emit_events is the only correct path: it sets ts to real UTC and dedups properly.
 - DO NOT spawn_task. DO NOT create_monitor.
 - DO NOT post any Reddit content. Only navigate-and-read.
@@ -432,7 +445,9 @@ Do NOT click any links inside emails. Do NOT compose or reply. Read-only."
 ## Step 3 — Classify each email
 
 For each email returned, build a stable hash:
-`hash = subject + '|' + date`
+`hash = subject + '|' + normalizedDate`
+
+where `normalizedDate` is `date` with the trailing relative-time suffix stripped (Gmail renders dates like `"Mon, Jun 1, 10:30 PM (19 hours ago)"` and the `(N hours/minutes/days ago)` part changes every poll, so it MUST be removed before hashing — otherwise the same email re-fires every check). Strip the regex `\s*\(\d+\s+(hours?|days?|minutes?)\s+ago\)$` from the end of `date` before concatenating.
 
 If hash is in state.seenMessageHashes → skip (already processed).
 
@@ -489,14 +504,18 @@ Call done with:
 - DO NOT spawn_task, DO NOT create_monitor.
 <<<END prompts/inbox-monitor.md>>>
 
-## Step 2 — spawn the 5 subordinate tasks
+## Step 2 — spawn the 5 subordinate tasks (idempotent)
 
 Compute these intervals in milliseconds (you'll need them in spawn_task schedule fields):
 - discover_interval_ms = {{discover_interval_min}} * 60000
 - comment_health_interval_ms = {{comment_health_interval_min}} * 60000
 - inbox_monitor_interval_ms = {{inbox_monitor_interval_min}} * 60000
 
-Then make these spawn_task calls IN ORDER. Each subordinate's `prompt` is a one-line indirection that tells the subordinate to read its real instructions from its prompt file (this keeps the spawn calls tiny and makes the prompts hot-patchable via cdp-eval).
+**IDEMPOTENCY CHECK (do this FIRST before any spawn_task call).** This runbook can be re-run safely — call `list_tasks` once, then for EACH of the 5 subordinates below, scan the returned list for a task whose `prompt` field contains the exact substring `"prompts/<role>.md"` (e.g. `"prompts/discover.md"` for the discover spawn). If a match is found AND its status is one of `waiting`, `running`, `queued`, **SKIP that spawn_task call entirely** — that subordinate already exists from a prior bootstrap run. Mention in your done summary which subordinates were skipped vs newly spawned.
+
+Each subordinate's `prompt` is a one-line indirection that tells the subordinate to read its real instructions from its prompt file (this keeps the spawn calls tiny and makes the prompts hot-patchable via cdp-eval).
+
+Make these spawn_task calls IN ORDER (subject to the idempotency check above):
 
 a. spawn_task — **discover** (recurring schedule):
 ```
@@ -546,16 +565,7 @@ e. spawn_task — **inbox-monitor** (recurring schedule):
 }
 ```
 
-## Step 3 — Set per-task config for discover
-
-After spawning, update the discover task's config to bump maxBrowse + maxSteps:
-- The runtime defaults are maxBrowse=5, maxSteps=10 which is too tight for processing all subreddits in one run
-- Use evalJavaScript on the side panel to set task.config.maxBrowse = (number_of_subreddits + 3) and task.config.maxSteps = 25
-- OR — leave this to the user to do via cdp-eval if needed; for default subreddit list of 9 we need maxBrowse=12
-
-(If this step isn't possible from the planner, just note it in your done summary and ask the user to do it manually.)
-
-## Step 4 — done
+## Step 3 — done
 
 Call done with:
 - summary: "Reddit Engagement Agent installed. Spawned 5 subordinates: discover (every {{discover_interval_min}}min), picker (subscription on post.discovered), escalator (subscription on anomaly.flagged), comment-health (every {{comment_health_interval_min}}min), inbox-monitor (every {{inbox_monitor_interval_min}}min — checks Gmail for ban/mod-message emails). Workspace files: persona.md, posting-limits.json, subreddit-allowlist.json, discover-config.json + 5 prompts/*.md. Reddit account: u/{{account_handle}}. Make sure you're logged in to Reddit AND Gmail in this browser. The agent will start working on its first discover tick."
