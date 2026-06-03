@@ -208,6 +208,7 @@ read_file: persona.md, subreddit-allowlist.json, posting-limits.json, comments-p
 Build:
 - `seenPostIds` = the set of postId values already in column 3 of comments-posted.csv
 - `recent24hBySub` = for each subreddit, count rows in comments-posted.csv with `postedAt` within the last 24h (use Current UTC ISO from system prompt header to compute the cutoff)
+- `lastPostedAt` = the MAX `postedAt` across ALL rows of comments-posted.csv (or `null` if no rows). This drives the spacing check between consecutive posts.
 - `allowedSubs` = split subreddit-allowlist.json.allowed_csv on commas and trim
 
 ## Step 2 — For each event E in the batch, IN ORDER
@@ -219,6 +220,8 @@ a. **Dedup**: if `postId` is in seenPostIds → skip silently (already commented
 b. **Allowlist**: if `subreddit` not in allowedSubs → emit `post.skipped` (single emit_events with one entry) reason="not-in-allowlist". Continue.
 
 c. **Rate limit (per-subreddit)**: if recent24hBySub[subreddit] >= posting-limits.json.perSubredditPer24h → emit `post.skipped` reason="rate-limit-self". Continue.
+
+c.5. **Rate limit (spacing — HARD, do this BEFORE drafting or browsing)**: if `lastPostedAt` is not null AND `(Current UTC - lastPostedAt) < posting-limits.json.minSecondsBetweenComments` → emit `post.skipped` reason="rate-limit-spacing", detail="<seconds since lastPostedAt> < <minSecondsBetweenComments>". STOP processing the batch — any remaining events would also violate spacing. Do NOT browse, do NOT draft. Updating `lastPostedAt` after any successful post in this batch (Step 2.e STEP 3) is mandatory so consecutive submits in the same fire also respect spacing.
 
 d. **Rate limit (per-account)**: count total comments-posted rows in last 24h. If >= posting-limits.json.perAccountPer24h → emit `post.skipped` reason="rate-limit-account". STOP processing the batch (don't try later events).
 
@@ -240,7 +243,7 @@ j. **Handle submit result**:
    - status === 'ok' AND commentText starts with first 30 chars of YOUR_DRAFT:
      - **STEP 1 (must come first)**: append to comments-posted.csv: `<postedAt>,<subreddit>,<postId>,<commentUrlOrEmpty>,<one-line draft escaped of newlines and commas>\n`. If this append_file fails, STOP processing this event — emit anomaly.flagged severity=WARN kind="csv-write-failed" and continue to the next event. The CSV is the dedup ledger; without the row, the next fire could re-post.
      - **STEP 2 (only after CSV append succeeds)**: emit `comment.posted` with payload `{platform:'reddit', postId, subreddit, commentUrl, text: YOUR_DRAFT, postedAt: Current UTC ISO}`, dedupKey=postId.
-     - **STEP 3**: bump recent24hBySub[subreddit] for subsequent events in this batch.
+     - **STEP 3**: bump recent24hBySub[subreddit] AND set `lastPostedAt = <postedAt>` for subsequent events in this batch (used by the c.5 spacing check at the top of each event).
      Do NOT swap the order. Do NOT skip step 1. Every comment.posted event MUST be preceded by a successful CSV append.
    - status === 'failed' with reason matching {captcha, "doing that too much", "banned", "suspended", "removed"}:
      - emit `anomaly.flagged` with severity=CRITICAL, source="picker", kind based on the reason (captcha-blocked / rate-limit-platform / account-suspended / comment-removed-by-mod), detail=reason, suggestedAction="check the account, may need manual intervention". STOP processing the batch.
