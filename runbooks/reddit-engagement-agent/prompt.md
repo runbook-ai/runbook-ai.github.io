@@ -451,9 +451,13 @@ Do NOT click any links inside emails. Do NOT compose or reply. Read-only."
 ## Step 3 — Classify each email
 
 For each email returned, build a stable hash:
-`hash = subject + '|' + bodyFingerprint`
+`hash = subject + '|' + primaryUrl`
 
-where `bodyFingerprint` is the first 120 chars of `body` with all whitespace (incl. newlines) collapsed to single spaces and trimmed. This is robust to Gmail's display quirks where the displayed `date` field shifts shape as emails age (relative-time suffix like `(19 hours ago)` disappears after a day, then a `, 2026,` year insert appears after a few days). The **body text is stable**; the date string is not.
+where `primaryUrl` is the FIRST URL matching `https?://(www\.|old\.)?reddit\.com/r/[^\s"<>)]+` found in the body. Reddit notification emails always include a permalink to the relevant content (the banned comment, the post that was replied to, the removed comment, etc.) — these URLs contain stable subreddit + post + comment IDs and never change across polls.
+
+If no Reddit URL is found (rare — newsletters etc.), fall back to `hash = subject + '|' + bodyFingerprint`, where `bodyFingerprint` is the first 80 chars of body with whitespace collapsed AND with relative-time patterns stripped (regex: `\s*[·•]?\s*\d+\s*(s|m|h|d|sec|min|hr|hour|hours|minute|minutes|day|days|second|seconds)\s+ago`, also stripped: `\s+ago\b`, `\s*Now\b`).
+
+⚠️ DO NOT use the email's displayed `date` field or any time-like substring of body as part of the hash — Gmail rewrites date displays as messages age (relative suffix disappears, year insert appears, "1s ago" → "2h ago" → "Yesterday" → date). Only stable identifiers (URLs containing IDs) are safe.
 
 If hash is in state.seenMessageHashes → skip (already processed).
 
