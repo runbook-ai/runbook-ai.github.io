@@ -553,9 +553,17 @@
           // Per-task config overrides go inline with runPlannerTask — they
           // apply only for this run and don't leak to future tasks the way
           // setRemoteConfig would while the side panel stays open.
-          const taskConfig = useFree
-            ? { llmBaseUrl: "https://llm.runbookai.net/v1", llmApiKey: "free" }
-            : {};
+          //
+          // maxSteps=30 (vs default 10): runbook bootstraps typically do
+          // many cheap tool calls (write_file per config/prompt file +
+          // spawn_task per subordinate). The default leaves bootstrap
+          // half-done and forces the user to re-run.
+          const taskConfig = {
+            maxSteps: 30,
+            ...(useFree
+              ? { llmBaseUrl: "https://llm.runbookai.net/v1", llmApiKey: "free" }
+              : {}),
+          };
 
           const resp = await chrome.runtime.sendMessage(EXTENSION_ID, {
             action: "runPlannerTask",

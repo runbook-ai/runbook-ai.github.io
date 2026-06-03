@@ -504,20 +504,26 @@ Call done with:
 - DO NOT spawn_task, DO NOT create_monitor.
 <<<END prompts/inbox-monitor.md>>>
 
-## Step 2 — spawn the 5 subordinate tasks (idempotent)
+## Step 2 — Read sentinel file `installed-state.json`
 
-Compute these intervals in milliseconds (you'll need them in spawn_task schedule fields):
+Idempotency pre-check. `read_file installed-state.json`.
+- If the file is NOT found, treat as `{"spawnedRoles": []}` and continue.
+- If it IS found, parse the JSON. `spawnedRoles` is an array like `["discover", "picker", ...]` listing roles already spawned by a prior bootstrap.
+
+Hold this value as `existingRoles` (a set) for use in Step 3.
+
+## Step 3 — spawn (skip any role already in `existingRoles`)
+
+Compute these intervals in milliseconds:
 - discover_interval_ms = {{discover_interval_min}} * 60000
 - comment_health_interval_ms = {{comment_health_interval_min}} * 60000
 - inbox_monitor_interval_ms = {{inbox_monitor_interval_min}} * 60000
 
-**IDEMPOTENCY CHECK (do this FIRST before any spawn_task call).** This runbook can be re-run safely — call `list_tasks` once, then for EACH of the 5 subordinates below, scan the returned list for a task whose `prompt` field contains the exact substring `"prompts/<role>.md"` (e.g. `"prompts/discover.md"` for the discover spawn). If a match is found AND its status is one of `waiting`, `running`, `queued`, **SKIP that spawn_task call entirely** — that subordinate already exists from a prior bootstrap run. Mention in your done summary which subordinates were skipped vs newly spawned.
+For EACH of the 5 spawn entries below: if its role string is already in `existingRoles`, **SKIP this spawn entirely** (do not call spawn_task — move to the next entry). After processing all 5, build `newSpawnedRoles` = the roles you actually spawned this run.
 
-Each subordinate's `prompt` is a one-line indirection that tells the subordinate to read its real instructions from its prompt file (this keeps the spawn calls tiny and makes the prompts hot-patchable via cdp-eval).
+Each subordinate's `prompt` is a one-line indirection that tells the subordinate to read its real instructions from its prompt file (keeps spawn calls tiny and makes prompts hot-patchable via cdp-eval).
 
-Make these spawn_task calls IN ORDER (subject to the idempotency check above):
-
-a. spawn_task — **discover** (recurring schedule):
+a. **discover** — IF `"discover" in existing_roles` → SKIP (do NOT spawn). Else spawn_task:
 ```
 {
   prompt: "Read prompts/discover.md and execute it as your full instructions for this fire. Use the persona/config from the workspace files referenced in that prompt.",
@@ -527,7 +533,7 @@ a. spawn_task — **discover** (recurring schedule):
 }
 ```
 
-b. spawn_task — **picker-and-poster** (subscription on post.discovered):
+b. **picker** — IF `"picker" in existing_roles` → SKIP. Else spawn_task:
 ```
 {
   prompt: "Read prompts/picker.md and execute it as your full instructions for this fire.",
@@ -536,7 +542,7 @@ b. spawn_task — **picker-and-poster** (subscription on post.discovered):
 }
 ```
 
-c. spawn_task — **escalator** (subscription on anomaly.flagged):
+c. **escalator** — IF `"escalator" in existing_roles` → SKIP. Else spawn_task:
 ```
 {
   prompt: "Read prompts/escalator.md and execute it as your full instructions for this fire.",
@@ -545,7 +551,7 @@ c. spawn_task — **escalator** (subscription on anomaly.flagged):
 }
 ```
 
-d. spawn_task — **comment-health** (recurring schedule):
+d. **comment-health** — IF `"comment-health" in existing_roles` → SKIP. Else spawn_task:
 ```
 {
   prompt: "Read prompts/comment-health.md and execute it as your full instructions for this fire.",
@@ -555,7 +561,7 @@ d. spawn_task — **comment-health** (recurring schedule):
 }
 ```
 
-e. spawn_task — **inbox-monitor** (recurring schedule):
+e. **inbox-monitor** — IF `"inbox-monitor" in existing_roles` → SKIP. Else spawn_task:
 ```
 {
   prompt: "Read prompts/inbox-monitor.md and execute it as your full instructions for this fire.",
@@ -565,7 +571,14 @@ e. spawn_task — **inbox-monitor** (recurring schedule):
 }
 ```
 
-## Step 3 — done
+## Step 4 — Update sentinel file
+
+Build the new sentinel: `mergedRoles = existingRoles UNION newSpawnedRoles` (deduped).
+`write_file installed-state.json` with content `{"spawnedRoles": <mergedRoles>, "lastInstalledAt": "<current UTC ISO>"}`.
+
+This ensures the next bootstrap run sees what's already installed and skips those spawns.
+
+## Step 5 — done
 
 Call done with:
 - summary: "Reddit Engagement Agent installed. Spawned 5 subordinates: discover (every {{discover_interval_min}}min), picker (subscription on post.discovered), escalator (subscription on anomaly.flagged), comment-health (every {{comment_health_interval_min}}min), inbox-monitor (every {{inbox_monitor_interval_min}}min — checks Gmail for ban/mod-message emails). Workspace files: persona.md, posting-limits.json, subreddit-allowlist.json, discover-config.json + 5 prompts/*.md. Reddit account: u/{{account_handle}}. Make sure you're logged in to Reddit AND Gmail in this browser. The agent will start working on its first discover tick."
