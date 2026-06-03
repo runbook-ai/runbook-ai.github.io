@@ -451,9 +451,9 @@ Do NOT click any links inside emails. Do NOT compose or reply. Read-only."
 ## Step 3 — Classify each email
 
 For each email returned, build a stable hash:
-`hash = subject + '|' + normalizedDate`
+`hash = subject + '|' + bodyFingerprint`
 
-where `normalizedDate` is `date` with the trailing relative-time suffix stripped (Gmail renders dates like `"Mon, Jun 1, 10:30 PM (19 hours ago)"` and the `(N hours/minutes/days ago)` part changes every poll, so it MUST be removed before hashing — otherwise the same email re-fires every check). Strip the regex `\s*\(\d+\s+(hours?|days?|minutes?)\s+ago\)$` from the end of `date` before concatenating.
+where `bodyFingerprint` is the first 120 chars of `body` with all whitespace (incl. newlines) collapsed to single spaces and trimmed. This is robust to Gmail's display quirks where the displayed `date` field shifts shape as emails age (relative-time suffix like `(19 hours ago)` disappears after a day, then a `, 2026,` year insert appears after a few days). The **body text is stable**; the date string is not.
 
 If hash is in state.seenMessageHashes → skip (already processed).
 
