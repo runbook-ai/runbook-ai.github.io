@@ -221,7 +221,10 @@ b. **Allowlist**: if `subreddit` not in allowedSubs → emit `post.skipped` (sin
 
 c. **Rate limit (per-subreddit)**: if recent24hBySub[subreddit] >= posting-limits.json.perSubredditPer24h → emit `post.skipped` reason="rate-limit-self". Continue.
 
-c.5. **Rate limit (spacing — HARD, do this BEFORE drafting or browsing)**: if `lastPostedAt` is not null AND `(Current UTC - lastPostedAt) < posting-limits.json.minSecondsBetweenComments` → emit `post.skipped` reason="rate-limit-spacing", detail="<seconds since lastPostedAt> < <minSecondsBetweenComments>". STOP processing the batch — any remaining events would also violate spacing. Do NOT browse, do NOT draft. Updating `lastPostedAt` after any successful post in this batch (Step 2.e STEP 3) is mandatory so consecutive submits in the same fire also respect spacing.
+c.5. **Rate limit (spacing — HARD, evaluated AT THE TOP OF EVERY EVENT)**:
+   - `lastPostedAt` is a **mutable variable** that you update after every successful post in this fire. It starts as the MAX postedAt in comments-posted.csv (Step 1). After every successful submit (Step 2.e STEP 3), you MUST update it to the new `postedAt` BEFORE moving to the next event.
+   - At the start of processing EACH event (before drafting, before browsing), re-evaluate: if `lastPostedAt` is not null AND `(Current UTC - lastPostedAt) < posting-limits.json.minSecondsBetweenComments` → emit `post.skipped` reason="rate-limit-spacing", detail="<seconds since lastPostedAt> < <minSecondsBetweenComments>", continue to the next event (do NOT stop the batch — later events may pass once enough time has elapsed, though in practice within a single fire none will).
+   - Example: minSecondsBetweenComments=600, batch=[E1, E2, E3]. E1 passes c.5 (lastPostedAt is from 2h ago), post succeeds at T=0s, lastPostedAt=T. E2 reaches c.5: now-lastPostedAt = ~10s < 600 → SKIP rate-limit-spacing. E3 same → SKIP. **Two consecutive posts in the same fire is a BUG.**
 
 d. **Rate limit (per-account)**: count total comments-posted rows in last 24h. If >= posting-limits.json.perAccountPer24h → emit `post.skipped` reason="rate-limit-account". STOP processing the batch (don't try later events).
 
