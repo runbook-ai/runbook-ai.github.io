@@ -2,7 +2,7 @@
 
 **Slug:** reddit-engagement-agent
 **Status:** dev
-**Owner:** showking@gmail.com
+**Owner:** Runbook AI team
 **One-liner:** Posts substantive technical comments on new posts in a curated set of subreddits, monitors for mod actions/replies, and pages on anomalies.
 
 ## Persona overlay (additive to SOUL.md)
