@@ -3,7 +3,7 @@
   "description": "Discovers new posts in technical subreddits, decides which are worth a substantive comment, posts under your Reddit account, monitors for mod actions and replies, and pages you if anything goes wrong.",
   "note": "Make sure you're logged into Reddit AND Gmail in this browser BEFORE clicking Run. The agent comments under whatever Reddit account is currently signed in, and checks Gmail for ban / mod-action emails (Reddit's web inbox doesn't reliably surface those). It runs continuously — discover every 4h, picker fires on new posts, comment-health every 4h, inbox-monitor every 2h. **Avoid strict-moderation subs** like r/MachineLearning, r/programming, r/webdev — they auto-ban accounts that look bot-like. Defaults below exclude those.",
   "params": [
-    { "name": "account_handle",   "label": "Your Reddit handle (no u/ prefix)",                       "type": "text",   "default": "FanZestyclose2521" },
+    { "name": "account_handle",   "label": "Your Reddit handle (no u/ prefix)",                       "type": "text",   "default": "",                   "placeholder": "your_reddit_username", "required": true },
     { "name": "subreddits",       "label": "Comma-separated subreddits to engage in",                  "type": "text",   "default": "LocalLLaMA,singularity,AI_Agents,ChatGPTCoding,LangChain,devops" },
     { "name": "subreddits_per_fire", "label": "Subreddits to scan per discover fire (rotates through the list across fires; keeps fire under maxBrowse=5)", "type": "number", "default": 3 },
     { "name": "per_sub_per_24h",  "label": "Max comments per subreddit per 24h",                       "type": "number", "default": 2 },
