@@ -89,7 +89,9 @@ function headers() {
 async function githubFetchWithRetry(url, opts) {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const res = await fetch(url, opts);
+      // Fresh per-attempt 30s timeout so a stalled GitHub call can't hang
+      // the sync cycle.
+      const res = await fetch(url, { ...opts, signal: opts.signal || AbortSignal.timeout(30000) });
       if (RETRY_STATUSES.has(res.status) && attempt < MAX_RETRIES - 1) {
         const retryAfter = res.headers.get('Retry-After');
         const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : 1000 * 2 ** attempt;
@@ -461,7 +463,7 @@ export async function testConnection() {
   const { owner, repo, pat } = cfg();
   if (!pat) throw new Error('No PAT configured');
   if (!owner || !repo) throw new Error('No repository configured');
-  const res = await fetch(`${API}/repos/${owner}/${repo}`, { headers: headers() });
+  const res = await fetch(`${API}/repos/${owner}/${repo}`, { headers: headers(), signal: AbortSignal.timeout(30000) });
   if (res.status === 401) throw new Error('Invalid PAT');
   if (res.status === 404) throw new Error('Repository not found');
   if (!res.ok) throw new Error(`GitHub error: ${res.status}`);
