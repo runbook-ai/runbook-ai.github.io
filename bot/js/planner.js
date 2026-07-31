@@ -78,7 +78,7 @@ async function think(messages, tools, opts) {
  * Browser action — locks the extension for the duration.
  * Returns { text, files } where files is a map of savedFiles from taskState.
  */
-export async function act(prompt, savedFiles = {}, browseIndex = 1) {
+export async function act(prompt, savedFiles = {}, browseIndex = 1, logContext = null) {
   const s = loadSettings();
 
   // Build config and initial taskState — bundled into one call so config
@@ -117,6 +117,10 @@ export async function act(prompt, savedFiles = {}, browseIndex = 1) {
     ...(Object.keys(savedFiles).length > 0 ? { savedFiles } : {}),
     browseIndex,
     ...(protectedTabIds.length > 0 ? { protectedTabIds } : {}),
+    // {taskId, runNumber} of the owning planner run: the browse's
+    // worker/supervisor/cua llmLog entries index under the task, so
+    // getTaskLlmLogs(taskId) returns them alongside the planner's own.
+    ...(logContext ? { logContext } : {}),
   };
 
   const result = await extensionCall('runHeadlessTaskWithConfig', { prompt, initialTaskState, config });
@@ -524,6 +528,44 @@ const DEFAULT_MAX_BROWSE = 5;
  * @returns {{ result: string, memory?: object, runSummary?: string, files?: object, stopReached?: boolean }}
  */
 export async function runPlan(task) {
+  // One llm-log session per planner run: the planner's own think() calls and
+  // every browse sub-agent inside this run share a single sessionTimestamp.
+  // The extension's begin/end pair is depth-counted, so act() ->
+  // runHeadlessTaskInternal nests inside this session instead of starting
+  // its own.
+  //
+  // Pairing discipline: end is called ONLY if begin succeeded (an older
+  // extension without the action, or a failed message round-trip, must not
+  // decrement a depth it never incremented). A begin that succeeded but an
+  // end round-trip that fails would leak the depth and pin one session
+  // timestamp forever, so end retries once and warns loudly on final
+  // failure. On the sidepanel the runner is in-process and cannot fail;
+  // this guards the bot-page messaging path.
+  let sessionBegun = false;
+  try {
+    await extensionCall('beginLlmSession', {});
+    sessionBegun = true;
+  } catch (err) {
+    console.warn('[planner] beginLlmSession failed (per-browse session fallback):', err.message);
+  }
+  try {
+    return await runPlanInner(task);
+  } finally {
+    if (sessionBegun) {
+      try {
+        await extensionCall('endLlmSession', {});
+      } catch (err) {
+        try {
+          await extensionCall('endLlmSession', {});
+        } catch (err2) {
+          console.warn('[planner] endLlmSession failed twice; llm-log session depth leaked until sidepanel reload:', err2.message);
+        }
+      }
+    }
+  }
+}
+
+async function runPlanInner(task) {
   const scheduleNote = task.schedule ? ' This is a recurring task.' : '';
   const { soul, agents, memory } = await buildWorkspaceContext();
 
@@ -692,7 +734,7 @@ export async function runPlan(task) {
             browseCount++;
             console.log('[planner] browse:', args.prompt.slice(0, 100));
             try {
-              const browseResult = await act(args.prompt, collectedFiles, browseCount);
+              const browseResult = await act(args.prompt, collectedFiles, browseCount, task.logContext || null);
               toolResult = { success: true, result: browseResult.text };
               // Collect any files downloaded during this browse step
               if (browseResult.files && Object.keys(browseResult.files).length > 0) {

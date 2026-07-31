@@ -189,7 +189,14 @@ export async function triage({ botUsername, buffer, latestMsg, activeTasks, part
       { role: 'user', content: formatBuffer(buffer, latestMsg) },
     ];
 
-    const args = { messages, tools: TRIAGE_TOOLS, role: 'triage', timeout: 30000 };
+    // Triage fires on incoming messages and can interleave with a running
+    // planner/browser task, so it must not inherit the extension's global
+    // session stamp (its entries would land in whatever run is active).
+    // Carry a per-invocation session via opts instead; retries share it.
+    const args = {
+      messages, tools: TRIAGE_TOOLS, role: 'triage', timeout: 30000,
+      opts: { sessionTimestamp: new Date().toISOString() },
+    };
 
     for (let attempt = 0; attempt < 3; attempt++) {
       let resp;
