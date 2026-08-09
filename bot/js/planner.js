@@ -503,6 +503,7 @@ Guidelines:
   - Child tasks are silent — they never message the user. The parent is responsible for all user communication.
 - For recurring tasks with a STOP CONDITION: when the condition is met, call done with stopReached=true. This will auto-complete the task and stop future runs.
 - Include specific URLs, search terms, and criteria in browse prompts — don't assume the browser agent remembers previous steps.
+- The task context may include a "## Browser state" section showing the tab the user is looking at right now. When the user says "this page", "current page", or "here", they mean THAT tab — direct the browse step to operate on the current tab (say "work on the current tab; do not navigate elsewhere") instead of guessing a URL. Never navigate to a different site, and never start a login flow the user didn't ask for.
 - When spawning child tasks, include all necessary context in the prompt and context fields — children cannot see the parent's memory.
 - If a browse step fails, try an alternative approach before giving up.
 - Always end with done to provide a final summary.
@@ -684,6 +685,21 @@ async function runPlanInner(task) {
   const stopCondition = task.context?.__stopCondition;
   if (stopCondition) {
     taskContextSections.push(`## Stop condition\nWhen this condition is met, call done with stopReached=true to auto-complete this task: ${stopCondition}`);
+  }
+
+  // Current browser tab — what the user is looking at right now. Without
+  // this the planner cannot ground "this page" / "current page" prompts
+  // and tends to invent a site (real failure: guessed ring.com while the
+  // user's tab was the Nest camera clips page).
+  try {
+    const tab = await extensionCall('getCurrentBrowserTab', {});
+    if (tab && typeof tab.tabId === 'number' && tab.url) {
+      taskContextSections.push(
+        `## Browser state\nCurrent browser tab (what the user is looking at right now): ${tab.url}` +
+        (tab.title ? ` — "${tab.title}"` : ''));
+    }
+  } catch (err) {
+    console.warn('[planner] getCurrentBrowserTab failed:', err.message);
   }
 
   if (taskContextSections.length > 0) {
