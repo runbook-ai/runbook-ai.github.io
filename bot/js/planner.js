@@ -11,7 +11,7 @@ import { loadSettings } from './settings.js';
 import { createAndEnqueue, cancelTask } from './task-manager.js';
 import { createTaskRecord, putTask, getAllTasks } from './task-store.js';
 import { buildWorkspaceContext } from './memory-store.js';
-import { readFile, writeFile, appendFile, listFiles, deleteFile, fileInfo } from './file-store.js';
+import { readFile, writeFile, appendFile, listFiles, deleteFile, fileInfo, grepFiles } from './file-store.js';
 import { latestEventTs, appendEvent } from './event-store.js';
 import { extensionCall as defaultExtensionCall } from './extension.js';
 
@@ -325,6 +325,22 @@ const PLANNER_TOOLS = [
         properties: {
           prefix: { type: 'string', description: 'Optional path prefix filter (e.g. "reports/")' },
         },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'grep_files',
+      description: 'Search the CONTENTS of files in persistent storage for a pattern, without reading whole files into context. Returns matching lines (with 1-based line numbers) grouped by file path. Use this to find where something lives across many stored files (logs, CSVs, reports) before read_file. list_files filters by path only; this searches inside files.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search pattern. Treated as a case-insensitive JavaScript regex; if it is not a valid regex it is matched as a literal substring.' },
+          prefix: { type: 'string', description: 'Optional path prefix to scope the search (e.g. "logs/").' },
+          maxResults: { type: 'number', description: 'Maximum number of files to return matches from (default 10).' },
+        },
+        required: ['query'],
       },
     },
   },
@@ -946,6 +962,16 @@ async function runPlanInner(task) {
             console.log('[planner] list_files:', args.prefix || '(all)');
             const files = await listFiles(args.prefix || '');
             toolResult = { files, count: files.length };
+            break;
+          }
+
+          case 'grep_files': {
+            console.log('[planner] grep_files:', args.query, args.prefix ? `(prefix ${args.prefix})` : '');
+            const { matches, totalMatches } = await grepFiles(args.query || '', {
+              prefix: args.prefix || '',
+              maxResults: typeof args.maxResults === 'number' ? args.maxResults : 10,
+            });
+            toolResult = { matches, totalMatches, fileCount: matches.length };
             break;
           }
 
