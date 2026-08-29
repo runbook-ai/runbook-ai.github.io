@@ -17,8 +17,6 @@ skills/
     SKILL.md
   gmail-web/
     SKILL.md
-  slack-web/
-    SKILL.md
   README.md
 ```
 
@@ -58,7 +56,7 @@ names, the traps). Imperative, concrete, no marketing.
   - `example.com` -- exact host.
   - `*.example.com` -- `example.com` and any subdomain.
   - `quip*.com` -- `*` anywhere matches any run of characters
-    (`quip.com`, `quip-apple.com`, but not `www.quip.com`); `*.quip*.com`
+    (`quip.com`, `quip-acme.com`, but not `www.quip.com`); `*.quip*.com`
     combines both rules. Use this for per-tenant hosts so the catalog does not
     have to list tenant names.
   - `'/^quip(-\w+)?\.com$/'` -- a JavaScript regex between slashes (flags
