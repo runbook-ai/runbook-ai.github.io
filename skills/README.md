@@ -32,7 +32,7 @@ license: MIT
 metadata:
   runbookai:
     agent: worker            # worker | planner | both  (only worker is consumed today)
-    sites: ["*.youtube.com", "youtu.be"]   # hostname globs; optional
+    sites: ["*.youtube.com", "youtu.be"]   # host patterns (see below); optional
     autoload: true           # load the body automatically when an open tab matches `sites`
     tags: [site, api, video]
     tested: 2026-08-28       # when the recipes were last verified live
@@ -50,10 +50,22 @@ names, the traps). Imperative, concrete, no marketing.
   until it loads the skill, so say *when* to use it, not just what it is.
 - Body: at most ~1,500 tokens (~6,000 characters). Longer material does not
   belong in a skill; it belongs in the site's own docs.
-- `sites`: exact hostname globs (`*.example.com`, `example.com`). They are
-  the only automatic trigger. A skill without `sites` is loaded when the
-  agent picks it from the brief, or when a task names it in
-  `config.preloadSkills`.
+- `sites`: hostname patterns, matched case-insensitively against every open
+  tab. They are the only automatic trigger. A skill without `sites` is loaded
+  when the agent picks it from the brief, or when a task names it in
+  `config.preloadSkills`. Pattern forms:
+  - `example.com` -- exact host.
+  - `*.example.com` -- `example.com` and any subdomain.
+  - `quip*.com` -- `*` anywhere matches any run of characters
+    (`quip.com`, `quip-apple.com`, but not `www.quip.com`); `*.quip*.com`
+    combines both rules. Use this for per-tenant hosts so the catalog does not
+    have to list tenant names.
+  - `'/^quip(-\w+)?\.com$/'` -- a JavaScript regex between slashes (flags
+    allowed, e.g. `/…/i`); anchor it yourself. Single-quote it in YAML so
+    backslashes survive.
+  - Hosts keep their port (`localhost:9007`): a glob written with a port
+    matches only that port, one without matches regardless of port; a regex
+    is tested against the host including its port.
 - `autoload`: reserve it for site recipes that are needed on nearly every
   task on that site; it skips the agent's decision and the `loadSkill` call.
 - One skill per trigger context. Knowledge that fires on the same site for
