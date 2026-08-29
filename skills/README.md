@@ -27,7 +27,7 @@ skills/
 ```markdown
 ---
 name: youtube-data-api
-description: One sentence, <= 200 chars. This IS the trigger -- the agent reads it to decide whether to load the skill.
+description: One sentence, <= 1024 chars. This IS the trigger -- the agent reads it to decide whether to load the skill.
 license: MIT
 metadata:
   runbookai:
@@ -46,9 +46,10 @@ names, the traps). Imperative, concrete, no marketing.
 
 - `name`: lowercase letters, digits and hyphens, unique across the catalog;
   matches the directory name.
-- `description`: at most 200 characters. It is the only thing the agent sees
+- `description`: at most 1,024 characters (keep it to a sentence or two:
+  every description sits in the system prompt). It is the only thing the agent sees
   until it loads the skill, so say *when* to use it, not just what it is.
-- Body: at most ~1,500 tokens (~6,000 characters). Longer material does not
+- Body: at most ~5,000 tokens (~20,000 characters, ~500 lines). Longer material does not
   belong in a skill; it belongs in the site's own docs.
 - `sites`: hostname patterns, matched case-insensitively against every open
   tab. They are the only automatic trigger. A skill without `sites` is loaded
@@ -88,7 +89,7 @@ bundled `skills.json`. At run time:
    `## Skills for this page` (or loaded outright if `autoload` is set).
 3. The agent calls `loadSkill({name})` -- in the same response as its page
    action, so it costs no extra turn -- and the body appears under
-   `## Loaded skills` for the rest of the task. At most 3 skills / ~4,500
+   `## Loaded skills` for the rest of the task. At most 5 skills / ~15,000
    tokens are loaded at once; `unloadSkill` frees a slot.
 4. A task can force skills with `config.preloadSkills: ["name"]`, and supply
    private ones with `config.localSkills: ["<SKILL.md text>"]` (a local skill
