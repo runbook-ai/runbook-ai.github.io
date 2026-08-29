@@ -17,6 +17,8 @@ skills/
     SKILL.md
   gmail-web/
     SKILL.md
+  slack-web/
+    SKILL.md
   README.md
 ```
 
