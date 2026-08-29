@@ -80,6 +80,49 @@ bundled `skills.json`. At run time:
    private ones with `config.localSkills: ["<SKILL.md text>"]` (a local skill
    with the same `name` overrides the bundled one).
 
+## Local skills
+
+A skill does not have to be in this catalog to be used. Any task can pass
+private or in-progress skills through its config; they overlay the bundled
+catalog for that task only, and a local skill with the same `name` as a
+bundled one replaces it. There is no settings page or file drop -- the only
+entry point is `config.localSkills`.
+
+1. Write a `SKILL.md` exactly as described above (same frontmatter, same
+   rules). Validate it from `auto-chrome/`:
+
+   ```bash
+   node -e "console.log(require('./extension/skills.js').parseSkillMd(require('fs').readFileSync('SKILL.md','utf8')))"
+   ```
+
+   A malformed skill (missing frontmatter, name or description) is dropped
+   silently at run time, so check for an `error` field here first.
+
+2. Pass the file's **text** (not its path) in `config.localSkills`, an array
+   so several can go together. Via the action hub:
+
+   ```bash
+   WS_PORT=9004 node tool/action.js runHeadlessTaskWithConfig \
+     prompt="Find Jane Doe's desk on http://intranet.corp" \
+     config="$(jq -n --rawfile s SKILL.md '{localSkills: [$s], ephemeralSession: true}')"
+   ```
+
+   Anything that reaches `runHeadlessTaskWithConfig` / `runPlannerTask`
+   config works the same way. `auto-chrome/extension-test/skills-e2e.js`
+   is a complete example: it builds the SKILL.md inline and runs the task
+   both ways (brief + `loadSkill`, and `autoload`).
+
+3. From there the skill behaves like a bundled one: its brief is in
+   `## Skills`, a `sites` match nudges or autoloads it, and
+   `config.preloadSkills: ["name"]` loads it at task start regardless of
+   site.
+
+To debug, run with `returnTaskState: true` and look at
+`taskState.loadedSkills` (bodies that were loaded) and the `actionLog` for
+a `loadSkill` call. Once a local skill is proven, promote it: add the
+folder here and repack the extension (`./pack-extension.sh` regenerates
+`skills.json`), after which `localSkills` is no longer needed.
+
 ## Contributing
 
 Open a PR adding `skills/<name>/SKILL.md`. Test the recipes live before
