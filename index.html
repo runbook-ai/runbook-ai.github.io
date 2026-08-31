@@ -47,6 +47,8 @@
     .nav-links { display: flex; align-items: center; gap: 24px; list-style: none; }
     .nav-links a { font-size: 0.875rem; color: var(--muted); font-weight: 500; }
     .nav-links a:hover { color: var(--text); text-decoration: none; }
+    .nav-links a.active { color: var(--indigo); font-weight: 600; text-decoration: none; }
+    .nav-links a.active:hover { color: var(--indigo); }
 
     .btn {
       display: inline-flex; align-items: center; gap: 6px;
@@ -229,14 +231,29 @@
   <nav>
     <a class="nav-logo" href="/">Runbook AI</a>
     <ul class="nav-links">
-      <li><a href="/runbooks/">Runbooks</a></li>
-      <li><a href="/bot/">Bot</a></li>
+      <li><a href="/runbooks/" data-nav="runbooks">Runbooks</a></li>
+      <li><a href="/bot/" data-nav="bot">Bot</a></li>
       <li><a href="https://github.com/runbook-ai/runbook-ai-mcp" target="_blank">MCP Server</a></li>
       <li><a href="https://discord.gg/SDtXkAKK2B" target="_blank">Discord</a></li>
       <li><a href="https://github.com/runbook-ai" target="_blank">GitHub</a></li>
     </ul>
     <a class="btn btn-primary" href="https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj" target="_blank">Install Extension</a>
   </nav>
+
+  <script>
+    // Highlight the current section in the site nav (Runbooks vs Bot) based on URL path.
+    // Trailing slashes are normalized so /runbooks and /runbooks/ match; query strings are ignored.
+    (function () {
+      var path = location.pathname.replace(/\/$/, '') || '/';
+      var rb = document.querySelector('.nav-links a[data-nav="runbooks"]');
+      var bot = document.querySelector('.nav-links a[data-nav="bot"]');
+      if (path === '/runbooks' || path.indexOf('/runbooks/') === 0) {
+        if (rb) rb.classList.add('active');
+      } else if (path === '/bot' || path.indexOf('/bot/') === 0) {
+        if (bot) bot.classList.add('active');
+      }
+    })();
+  </script>
 
   <section class="hero">
     <div class="hero-header">

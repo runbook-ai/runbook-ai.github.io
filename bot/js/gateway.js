@@ -144,7 +144,13 @@ function onDispatch(event, data) {
       break;
 
     case 'RESUMED':
-      // Keep showing 'Connected as ...' - don't flash a different message.
+      // Session resumed after reconnect — WebSocket was open before READY/RESUMED.
+      if (gw.botUsername) {
+        setStatus('connected', `Connected as ${gw.botUsername}`);
+      } else {
+        setStatus('connected', 'Discord connected');
+      }
+      setConnectBtn('Disconnect', 'btn-danger', false);
       break;
 
     case 'MESSAGE_CREATE':
@@ -165,21 +171,28 @@ export function gwConnect() {
     return;
   }
 
-  setStatus('connecting', '');
+  setStatus('connecting', 'Discord: connecting…');
   setConnectBtn('Disconnect', 'btn-danger', true);
 
   // Prefer the resume URL from the last READY event (Discord requirement).
   const ws = new WebSocket(gw.resumeGatewayUrl ?? GATEWAY_URL);
   gw.ws = ws;
 
-  ws.onopen = () => setConnectBtn('Disconnect', 'btn-danger', false);
+  // Keep Disconnect disabled until READY or RESUMED — otherwise the dot stays
+  // `connecting` while the button is already clickable (confusing).
 
   ws.onmessage = (e) => onGatewayMessage(e.data);
 
   ws.onerror = () => logSystem('WebSocket connection error.', 'error-msg');
 
   ws.onclose = (e) => {
+    // Ignore close events from a socket we already replaced — otherwise we clear
+    // the new connection's heartbeat / gw.ws and the header sticks on "reconnecting"
+    // while local chat still works.
+    if (gw.ws !== ws) return;
+
     clearInterval(gw.heartbeatTimer);
+    gw.heartbeatTimer = null;
     gw.ws = null;
 
     if (gw.stopped) {
@@ -191,7 +204,7 @@ export function gwConnect() {
     // Auto-reconnect with exponential backoff (capped at 60 s).
     const delay = gw.reconnectDelay;
     logSystem(`Disconnected (code ${e.code}). Reconnecting in ${Math.round(delay / 1000)}s...`);
-    setStatus('connecting', '');
+    setStatus('connecting', 'Discord: reconnecting…');
     gw.reconnectTimer = setTimeout(() => {
       gw.reconnectTimer = null;
       gwConnect();
@@ -204,6 +217,7 @@ export function gwConnect() {
 export function gwDisconnect() {
   gw.stopped = true;
   clearInterval(gw.heartbeatTimer);
+  gw.heartbeatTimer = null;
   clearTimeout(gw.reconnectTimer);
   gw.reconnectTimer   = null;
   gw.ws?.close(1000, 'user disconnect');

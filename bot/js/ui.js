@@ -2,7 +2,8 @@
 
 /** Set the header status indicator. cls is one of '', 'connecting', 'connected', 'error'. */
 export function setStatus(cls, text) {
-  document.getElementById('statusDot').className = `status-dot ${cls}`;
+  const dot = document.getElementById('statusDot');
+  dot.className = cls ? `status-dot ${cls}` : 'status-dot';
   document.getElementById('statusText').textContent = text;
 }
 
