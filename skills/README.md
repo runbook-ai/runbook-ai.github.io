@@ -11,15 +11,6 @@ Each skill is a directory with a `SKILL.md`. The format follows the
 directory also works in other skill-aware agents. Everything Runbook-specific
 sits under `metadata.runbookai`.
 
-```
-skills/
-  youtube-data-api/
-    SKILL.md
-  gmail-web/
-    SKILL.md
-  README.md
-```
-
 ## SKILL.md
 
 ```markdown
