@@ -18,6 +18,10 @@ to `https://sheets.new`. Sheet tabs ARE real DOM: enumerate names with
 and click a tab (it is in the simplified HTML) to switch -- the URL's `gid`
 updates.
 
+Edit/version history (who edited, exactly when): load the
+`google-docs-web` skill for the revisions/tiles recipe -- the same
+endpoint serves spreadsheets via the `/spreadsheets/` path.
+
 ## Reading: export/gviz endpoints, NOT the page
 
 The grid paints onto a canvas: the simplified HTML contains no cell values,

@@ -1,14 +1,14 @@
 ---
 name: google-docs-web
-description: Reading and editing Google Docs documents (docs.google.com/document/...) -- the editor is a canvas, so page HTML shows no document text; read via the cookie-authenticated export endpoint with downloadFile, write by dispatching synthetic paste/keyboard events to the hidden text-event iframe with evalJavaScript.
+description: Reading and editing Google Docs documents (docs.google.com/document/...) -- the editor is a canvas, so page HTML shows no document text; read via the cookie-authenticated export endpoint with downloadFile, write by dispatching synthetic paste/keyboard events to the hidden text-event iframe with evalJavaScript. Also covers edit/version history for any Google Doc, Sheet or Slide via the revisions/tiles endpoint (exact revision timestamps + editor names).
 license: MIT
 metadata:
   runbookai:
     agent: worker
     sites: ["docs.google.com"]
     autoload: false
-    tags: [site, google, docs, documents]
-    tested: 2026-09-10
+    tags: [site, google, docs, documents, revisions]
+    tested: 2026-09-16
 ---
 
 The document id is in the URL: `docs.google.com/document/d/<ID>/edit`.
@@ -70,9 +70,52 @@ return 'pasted';
   corrected full text, then Ctrl+A + paste it. There is no reliable way to
   place the cursor at an arbitrary phrase.
 
+## Edit history of a Doc/Sheet/Slide: revisions/tiles
+
+The version-history data (who edited, exactly when) comes from an internal
+but plain-JSON endpoint. It works for Docs, Sheets AND Slides -- only the
+path segment differs. It needs a session token:
+
+1. From any OPEN Docs/Sheets/Slides editor tab (e.g. the file itself), get
+   the token with `evalJavaScript` using the bare expression
+   `_docs_flag_initialData.info_params` -> `{token, ouid}`.
+   ONE token works for every file of every editor type in the session.
+2. Fetch with `downloadFile` (in-page fetch is blocked by CSP; downloadFile
+   sends the session cookies), URL-encoding the token (it contains a `:`):
+
+```
+https://docs.google.com/document/d/<FILE_ID>/revisions/tiles?id=<FILE_ID>&start=1&revisionBatchSize=1500&showDetailedRevisions=true&loadType=0&token=<TOKEN_URLENCODED>&ouid=<OUID>&includes_info_params=true
+```
+
+Use `/spreadsheets/` or `/presentation/` instead of `/document/` to match
+the file type. The response saves as `json.txt` (collisions get -2/-3
+suffixes; the tool result states the exact name) -- `readTextFile` it.
+
+Format: an anti-XSSI `)]}'` line, then JSON:
+- `tileInfo`: array of revision batches `{start, end, endMillis, users:
+  [userId, ...], expandable}` -- `endMillis` is the exact epoch-ms
+  timestamp (UTC), `users` are the editors of that batch.
+- `userMap`: userId -> `{name, photo, color, anonymous}`. These are
+  display names only -- email addresses are NOT in the data; never
+  guess or invent one when reporting.
+
+If the body is an HTML page instead of `)]}'`-JSON, the token was missing
+or stale: re-read `info_params` from an open editor tab and retry.
+
+Granularity caveat: Google consolidates revisions server-side.
+`showDetailedRevisions=true` returns the finest granularity kept -- dense
+for recent activity, but edits from long ago are merged into coarser
+batches, so fine-grained timelines are reliable for recent days and
+approximate for old history. Say so when reporting old ranges.
+
+For activity timelines across a whole Drive folder, see the
+`google-drive-web` skill (folder listing + aggregation recipe).
+
 ## What does NOT work
 
 - Reading the doc from the DOM or `readText` -- the text is canvas-only.
+- The revisions/tiles URL without `token`/`ouid` -- returns an HTML shell,
+  not JSON.
 - `evalJavaScript` fetch of export/API URLs from the docs tab -- CSP blocks
   it ("Failed to fetch"). Use `downloadFile`.
 - Replaying the editor's internal `/save` endpoints from
