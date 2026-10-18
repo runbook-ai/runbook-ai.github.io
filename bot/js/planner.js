@@ -47,7 +47,7 @@ async function think(messages, tools, opts) {
   if (freeConfig) await extensionCall('setRemoteConfig', { config: freeConfig });
 
   try {
-    const args = { messages, tools, role: 'planner', timeout: 300000, opts };
+    const args = { messages, tools, role: 'planner', timeout: 300000, opts: { ...(opts || {}), envelope: PLANNER_ENVELOPE } };
     for (let attempt = 0; attempt < 5; attempt++) {
       let resp;
       try {
@@ -140,6 +140,24 @@ export async function act(prompt, savedFiles = {}, browseIndex = 1, logContext =
 }
 
 // ── Planner tools ──────────────────────────────────────────────────────────
+
+// Response-level fields of every planner turn, semantically apart from the
+// tool calls themselves -- the same split as the browser agent's
+// WORKER_ENVELOPE (auto-chrome extension/prompts.js):
+//   taskObservation -- what IS: what is known about the user's goal so far
+//   taskPlan        -- what WILL happen next, and why
+// Structured tool-call mode (llm.js, the default): top-level fields of the
+// response, generated before the calls. Native tool calling: sub-fields of
+// each call's `reasoning` param (added to every tool below). Either way the
+// extension reads them back from the first call that fills them.
+const PLANNER_ENVELOPE = {
+  param: 'reasoning',
+  fields: {
+    taskObservation: 'What is known now about the user\'s goal: what the request asks for, what the last browse or tool call returned, and the relevant files, memory and child-task statuses. One or two sentences; summarise. "same" if nothing relevant changed since your previous response.',
+    taskPlan: 'The remaining steps and why: which browse goals or tools come next, which of the user\'s material you rely on, and what you will stop before (e.g. "stop before submitting"). "same" if the plan is unchanged.',
+  },
+  unchanged: { taskObservation: 'same', taskPlan: 'same' },
+};
 
 const PLANNER_TOOLS = [
   {
@@ -484,6 +502,34 @@ const PLANNER_TOOLS = [
   },
 ];
 
+// Native-mode carrier for PLANNER_ENVELOPE (see above). In structured mode
+// llm.js lifts this param out of the calls into the response envelope.
+for (const tool of PLANNER_TOOLS) {
+  const params = tool.function.parameters;
+  params.properties = {
+    reasoning: {
+      type: 'object',
+      properties: Object.fromEntries(Object.keys(PLANNER_ENVELOPE.fields).map(f => [f, { type: 'string', description: PLANNER_ENVELOPE.fields[f] }])),
+      required: Object.keys(PLANNER_ENVELOPE.fields),
+    },
+    ...params.properties,
+  };
+  params.required = ['reasoning', ...(params.required || [])];
+}
+
+// Always appended to the system prompt (custom AGENTS text replaces
+// DEFAULT_AGENTS, so this can't live there).
+const RESPONSE_FIELDS_SECTION = `
+
+## Progress fields: taskObservation and taskPlan
+
+Every response carries taskObservation and taskPlan together with its tool calls (as top-level response fields, or, with native tool calling, inside the first call's "reasoning" object; later calls may send {}). They are shown to the user as your progress, so write them for the user, in plain language:
+- taskObservation is what IS: what you know about the goal right now -- what the last browse returned, what is still missing.
+- taskPlan is what you WILL do and why: the next browse goals or tools, which of the user's material you use, and what you will stop before.
+- The tool calls are the doing; do not restate their arguments in the plan.
+
+Stay at the level of the goal. The browser agent narrates the pages it works on, so never describe page fields, buttons, element ids or click-by-click steps -- say "fill the Education section from resume.pdf", not which inputs to type into.`;
+
 const DEFAULT_SOUL = `You are Runbook AI, a bot that helps users automate tasks through a real browser. You can navigate websites, read pages, fill forms, scrape data, and monitor sites on a schedule.`;
 
 const DEFAULT_AGENTS = `You have access to:
@@ -530,7 +576,7 @@ Guidelines:
 - **done.summary must always be plain text.** No HTML, no markdown tables, no inline images. Use short paragraphs and at most simple "- " bullets. The summary is delivered through channels (Discord, future messaging apps) that don't render HTML reliably, so anything richer gets shown as escaped source.
 - **If the user asks for an HTML table, formatted report, or any rich output, delegate it to a browse step.** Include in that browse prompt: "When you're done, call taskReturn(format=\\"html\\", result=…) with the final HTML." (or format=\\"markdown\\" / \\"json\\" as appropriate). The worker writes the rich output into a result file that the UI surfaces as a downloadable / viewable attachment. Then in done.summary, write a short plain-text note like "Generated the HTML table; see attached result-1.html." — do NOT inline the HTML into summary.`;
 
-export { DEFAULT_SOUL, DEFAULT_AGENTS };
+export { DEFAULT_SOUL, DEFAULT_AGENTS, PLANNER_TOOLS, PLANNER_ENVELOPE, RESPONSE_FIELDS_SECTION };
 
 // ── Planner loop ───────────────────────────────────────────────────────────
 
@@ -606,6 +652,7 @@ async function runPlanInner(task) {
     soul || DEFAULT_SOUL,
     '\n\nYour role: break down user requests into concrete steps and execute them using the available tools.\n\n',
     agents || DEFAULT_AGENTS,
+    RESPONSE_FIELDS_SECTION,
     memory,
     participantNote,
     personalNotesNote,
