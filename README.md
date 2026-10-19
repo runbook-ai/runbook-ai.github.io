@@ -12,8 +12,6 @@ https://github.com/user-attachments/assets/b9e5a243-4e68-455b-9b81-cf1004271c1e
 
 - **Runbook Share & Run** — Discover community-contributed runbooks for common tasks. Each runbook is a reusable, shareable prompt + config pair. Run them with one click directly from your browser. [Browse runbooks](https://runbookai.net/runbooks/)
 
-- **Bot** — Delegate tasks to Runbook AI from anywhere — just send a message to your bot and it acts on your behalf. Currently supports Discord, with more platforms coming. [Set up the bot](https://runbookai.net/bot/)
-
 - **MCP Server** — Invoke Runbook AI from Claude Code, Gemini CLI, and other MCP-compatible clients. See [runbook-ai-mcp](https://github.com/runbook-ai/runbook-ai-mcp).
 
 - **Browser Agent LLM** *(coming soon)* — A custom LLM fine-tuned specifically for autonomous browser tasks — faster, cheaper, and more reliable than general-purpose models.
