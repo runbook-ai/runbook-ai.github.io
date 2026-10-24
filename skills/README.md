@@ -130,7 +130,7 @@ At pack time the extension copies every `skills/*/SKILL.md` and its
 ## Local skills
 
 A skill does not have to be in this catalog to be used. The extension's
-file store (the Files panel; the planner's `write_file` / `read_file`) holds
+file store (the Files panel; `tool/skill-store.js` in auto-chrome) holds
 local skills in the same layout as this catalog:
 
 ```
