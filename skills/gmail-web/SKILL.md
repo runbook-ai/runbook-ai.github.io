@@ -28,23 +28,10 @@ be trusted.
 
 **New / unread mail: the Atom feed.** Cookie-authenticated, clean XML,
 fetchable from any mail.google.com tab:
-```js
-const xml = await fetch('https://mail.google.com/mail/feed/atom', {credentials: 'include'}).then(r => r.text());
-const doc = new DOMParser().parseFromString(xml, 'application/xml');
-return [...doc.querySelectorAll('entry')].map(e => ({
-  title: e.querySelector('title')?.textContent,
-  summary: e.querySelector('summary')?.textContent,
-  from: e.querySelector('author > name')?.textContent,
-  email: e.querySelector('author > email')?.textContent,
-  issued: e.querySelector('issued')?.textContent,
-  link: e.querySelector('link')?.getAttribute('href'),
-}));
-```
-`https://mail.google.com/mail/feed/atom/<label>` scopes it to a label
-(`/mail/feed/atom/unread`, `/mail/feed/atom/<your-label>`). Limits: UNREAD
-messages only, read-only, `summary` is a snippet not the body. This is the
-right tool for "watch my inbox for a reply from X" -- poll it instead of
-re-reading the DOM.
+`skills.gmailWeb.unreadMail({})`, or `skills.gmailWeb.unreadMail({label: 'my-label'})`
+for one label. Limits: UNREAD messages only, read-only, `summary` is a
+snippet not the body. This is the right tool for "watch my inbox for a
+reply from X" -- poll it instead of re-reading the DOM.
 
 **Everything else: the UI.** Search (`in:inbox from:x newer_than:2d` in
 the search box, then submit), opening a thread to read the full body, reply

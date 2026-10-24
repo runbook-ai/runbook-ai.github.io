@@ -13,10 +13,9 @@ metadata:
 
 The spreadsheet id is in the URL: `docs.google.com/spreadsheets/d/<ID>/edit?gid=<GID>`;
 `gid` identifies the active sheet (tab). A new empty spreadsheet: navigate
-to `https://sheets.new`. Sheet tabs ARE real DOM: enumerate names with
-`evalJavaScript`: `[...document.querySelectorAll('.docs-sheet-tab-name')].map(e => e.textContent)`,
-and click a tab (it is in the simplified HTML) to switch -- the URL's `gid`
-updates.
+to `https://sheets.new`. Sheet tabs ARE real DOM: list their names with
+`skills.googleSheetsWeb.sheetTabs()` and click a tab (it is in the
+simplified HTML) to switch -- the URL's `gid` updates.
 
 Edit/version history (who edited, exactly when): load the
 `google-docs-web` skill for the revisions/tiles recipe -- the same
@@ -27,53 +26,31 @@ endpoint serves spreadsheets via the `/spreadsheets/` path.
 The grid paints onto a canvas: the simplified HTML contains no cell values,
 so never try to read cells from the DOM or scroll the grid to "see" data.
 Two cookie-authenticated endpoints return sheet data for any spreadsheet
-the account can view -- use `downloadFile` on them, then `readTextFile`
+the account can view -- `downloadFile` the URL, then `readTextFile`
 (in-page `fetch` of these URLs is blocked by the page's CSP and fails):
 
-```
-https://docs.google.com/spreadsheets/d/<ID>/export?format=csv&gid=<GID>
-https://docs.google.com/spreadsheets/d/<ID>/gviz/tq?tqx=out:csv&sheet=<SheetName>
-```
-
-- The first is the raw sheet as CSV (formulas come back as computed values).
-- The gviz form takes a sheet NAME (no gid needed) and an optional SQL-ish
-  query, URL-encoded in `tq`, that filters/projects server-side, e.g.
-  `&tq=select%20B,C%20where%20C%20is%20not%20null`. Columns are letters,
-  strings in single quotes. Use a query instead of downloading a huge sheet.
+- `skills.googleSheetsWeb.csvUrl({gid})` -- the raw sheet as CSV (formulas
+  come back as computed values); `gid` defaults to the active tab.
+- `skills.googleSheetsWeb.queryUrl({sheet, query})` -- takes a sheet NAME
+  and an optional SQL-ish query that filters/projects server-side, e.g.
+  `query: "select B, C where C is not null"`. Columns are letters, strings
+  in single quotes. Use a query instead of downloading a huge sheet.
 
 ## Writing cells: name box + TSV paste
 
-Drive the grid from `evalJavaScript` on the spreadsheet's tab: jump the
-selection with the name box (a real input, id `t-name-box`), then dispatch
-a synthetic paste to the focused grid editor. Untrusted events are
+Drive the grid from `evalJavaScript` on the spreadsheet's tab:
+`skills.googleSheetsWeb.writeCells({ref: 'B3', values: [['alpha', 42], ['beta', 7]]})`
+jumps the selection with the name box (id `t-name-box`) and pastes the
+block as TSV (`values` may also be a TSV string). Untrusted events are
 processed normally.
 
-```js
-const nb = document.getElementById('t-name-box');
-const jump = async (ref) => {           // 'B3', or a range 'A1:C10'
-  nb.focus(); nb.value = ref;
-  nb.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true}));
-  await new Promise(r => setTimeout(r, 600));  // focus returns to the grid editor
-};
-const paste = async (tsv) => {
-  const dt = new DataTransfer();
-  dt.setData('text/plain', tsv);
-  document.activeElement.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true}));
-  await new Promise(r => setTimeout(r, 800));
-};
-await jump('B3');
-await paste('alpha\t42\nbeta\t7');   // TSV: tabs = next column, newlines = next row
-return 'pasted';
-```
-
-- The paste fills a rectangular block anchored at the selected cell --
-  build one TSV string for the whole update instead of one call per cell.
-- Formulas work: paste `=SUM(C3:C4)` into a cell and it computes. Numbers
-  are parsed as numbers.
-- Clear cells: `await jump('E1:E10')` then dispatch a Delete keydown to
-  `document.activeElement` (`{key:'Delete', keyCode:46, which:46, bubbles:true, cancelable:true}`).
+- The paste fills a rectangular block anchored at `ref` -- write the whole
+  update in one call instead of one call per cell.
+- Formulas work: a value `=SUM(C3:C4)` computes. Numbers are parsed as
+  numbers.
+- Clear cells: `skills.googleSheetsWeb.clearCells({range: 'E1:E10'})`.
 - Appending rows: read the CSV export first to learn the last used row,
-  then jump to the first empty row and paste there.
+  then `writeCells` at the first empty row.
 - Saving is automatic; wait ~2s, then verify by re-downloading the CSV
   export and checking the new values. Report success only after that check.
 
