@@ -163,8 +163,8 @@ runbooks, the planner and MCP clients alike.
    node tool/skill-store.js rm my-skill
    ```
 
-   Or create the files from the Files panel, or ask the planner to write
-   them. `auto-chrome/extension-test/skills-e2e.js` is a complete example:
+   Or let the agent write it (next section).
+   `auto-chrome/extension-test/skills-e2e.js` is a complete example:
    it pushes a fixture skill with a script and runs the task both ways
    (brief + `loadSkill`, and `autoload`).
 
@@ -179,6 +179,18 @@ the `loadSkill` call and the `evalJavaScript` expressions. Once a local
 skill is proven, promote it: add the folder here and repack the extension
 (`./pack-extension.sh` regenerates `skills.json`), then remove the local
 copy.
+
+## Skills the agent learns
+
+When the agent gets a site's API or a procedure working, it can save it with
+its `saveSkill` tool as a **draft**: the same layout, kept in that task's
+files. The task and its follow-ups use the draft right away; nothing else
+sees it. The task's reply shows a skill card with icons to view the source,
+approve, or delete the draft. Approving copies it into `skills/<name>/` in
+the file store (replacing the whole folder at once), and from then on every
+task uses it like any local skill. To change a skill, ask in a follow-up; the
+agent saves a new complete draft for you to approve. An unapproved draft goes
+away with its task.
 
 ## Contributing
 
