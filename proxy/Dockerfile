@@ -6,7 +6,7 @@ RUN addgroup -S proxy && adduser -S proxy -G proxy
 
 WORKDIR /app
 
-COPY package.json server.js ./
+COPY package.json server.js relay.js ./
 
 # No npm install — zero dependencies
 

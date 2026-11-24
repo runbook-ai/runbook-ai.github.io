@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="robots" content="noindex" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Scan photos — Runbook AI</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --accent: #6366f1; --ok: #10b981; --bad: #ef4444; --ink: #f9fafb; --muted: #9ca3af; --panel: #111827; }
+    html, body { height: 100%; background: #000; color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { display: flex; flex-direction: column; overscroll-behavior: none; }
+    button { font: inherit; cursor: pointer; }
+    .hidden { display: none !important; }
+    header { padding: max(10px, env(safe-area-inset-top)) 16px 10px; background: var(--panel); font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
+    header .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+    header.ok .dot { background: var(--ok); }
+    header.bad .dot { background: var(--bad); }
+    header .count { margin-left: auto; color: var(--muted); }
+
+    /* Camera */
+    #cameraView { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .viewfinder { flex: 1; position: relative; background: #000; min-height: 0; overflow: hidden; }
+    video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .25s; }
+    .flash.on { opacity: 0.7; transition: none; }
+    .retake-banner { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(99,102,241,.9); padding: 6px 12px; border-radius: 16px; font-size: 0.85rem; }
+    .torch { position: absolute; top: 10px; right: 10px; width: 40px; height: 40px; border-radius: 50%; border: none; background: rgba(0,0,0,.5); color: #fff; font-size: 1.1rem; }
+    .torch.on { background: #fbbf24; color: #000; }
+    .controls { background: var(--panel); padding: 12px 16px max(12px, env(safe-area-inset-bottom)); }
+    .strip { display: flex; gap: 6px; overflow-x: auto; min-height: 44px; margin-bottom: 10px; }
+    .strip img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; border: 1px solid #374151; flex: none; }
+    .shutter-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
+    .shutter { width: 74px; height: 74px; border-radius: 50%; border: 5px solid #fff; background: rgba(255,255,255,.15); }
+    .shutter:active { background: #fff; }
+    .shutter:disabled { opacity: .4; }
+    .done-btn { justify-self: end; padding: 10px 16px; border-radius: 22px; border: none; background: var(--accent); color: #fff; font-weight: 600; }
+    .done-btn:disabled { opacity: .4; }
+    .fallback { display: flex; gap: 8px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+    .ghost { padding: 8px 14px; border-radius: 18px; border: 1px solid #4b5563; background: transparent; color: var(--ink); font-size: 0.875rem; }
+    .camera-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; color: var(--muted); font-size: 0.95rem; }
+
+    /* Review */
+    #reviewView { flex: 1; overflow-y: auto; background: #0b0f19; padding: 16px 16px max(16px, env(safe-area-inset-bottom)); }
+    #reviewView h1 { font-size: 1.15rem; margin-bottom: 4px; }
+    #reviewView .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+    .tile { position: relative; aspect-ratio: 3 / 4; border-radius: 8px; overflow: hidden; border: 1px solid #374151; background: #111; padding: 0; }
+    .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .tile .n { position: absolute; left: 6px; top: 6px; background: rgba(0,0,0,.65); border-radius: 10px; padding: 1px 7px; font-size: 0.75rem; }
+    .tile .st { position: absolute; right: 6px; bottom: 6px; font-size: 0.85rem; }
+    .empty { color: var(--muted); text-align: center; padding: 30px 10px; font-size: 0.9rem; }
+    .review-actions { display: grid; gap: 10px; margin-top: 18px; }
+    .primary { padding: 14px; border-radius: 12px; border: none; background: var(--accent); color: #fff; font-weight: 700; font-size: 1rem; }
+    .primary:disabled { opacity: .45; }
+    .secondary { padding: 12px; border-radius: 12px; border: 1px solid #4b5563; background: transparent; color: var(--ink); font-weight: 600; }
+    .progress { height: 6px; border-radius: 3px; background: #1f2937; overflow: hidden; margin-top: 12px; }
+    .progress div { height: 100%; width: 0; background: var(--ok); transition: width .2s; }
+    .status { margin-top: 10px; font-size: 0.9rem; color: var(--muted); min-height: 1.3em; }
+    .status.bad { color: #fca5a5; }
+    .status.ok { color: #6ee7b7; }
+    .note { color: var(--muted); font-size: 0.75rem; margin-top: 16px; line-height: 1.5; }
+
+    /* Viewer */
+    #viewer { position: fixed; inset: 0; background: rgba(0,0,0,.95); display: flex; flex-direction: column; z-index: 10; }
+    #viewer img { flex: 1; min-height: 0; object-fit: contain; width: 100%; }
+    #viewer .bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 10px 10px max(10px, env(safe-area-inset-bottom)); background: var(--panel); }
+    #viewer .bar button { padding: 10px 4px; border-radius: 10px; border: 1px solid #374151; background: transparent; color: var(--ink); font-size: 0.8rem; }
+    #viewer .bar button.del { color: #fca5a5; }
+    #viewer .bar button:disabled { opacity: .35; }
+
+    #fatal { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; padding: 32px; color: var(--muted); line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <header id="hdr"><span class="dot"></span><span id="hdrText">Connecting…</span><span class="count" id="hdrCount"></span></header>
+
+  <div id="fatal" class="hidden"></div>
+
+  <section id="cameraView" class="hidden">
+    <div class="viewfinder">
+      <video id="video" playsinline muted autoplay></video>
+      <div class="flash" id="flash"></div>
+      <div class="retake-banner hidden" id="retakeBanner"></div>
+      <button class="torch hidden" id="torchBtn" aria-label="Flashlight">⚡</button>
+      <div class="camera-msg hidden" id="cameraMsg"></div>
+    </div>
+    <div class="controls">
+      <div class="strip" id="strip"></div>
+      <div class="shutter-row">
+        <span></span>
+        <button class="shutter" id="shutter" aria-label="Take photo"></button>
+        <button class="done-btn" id="doneBtn" disabled>Review ✓</button>
+      </div>
+      <div class="fallback">
+        <button class="ghost" id="nativeBtn">Native camera</button>
+        <button class="ghost" id="libraryBtn">Library</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="reviewView" class="hidden">
+    <h1 id="reviewTitle">Review</h1>
+    <p class="sub" id="reviewSub">Tap a photo to view, retake, delete or reorder it.</p>
+    <div class="grid" id="grid"></div>
+    <div class="review-actions">
+      <button class="primary" id="sendBtn" disabled>Send all</button>
+      <button class="secondary" id="backBtn">Back to camera</button>
+      <div class="fallback">
+        <button class="ghost" id="nativeBtn2">Native camera</button>
+        <button class="ghost" id="libraryBtn2">Library</button>
+      </div>
+    </div>
+    <div class="progress hidden" id="progress"><div id="progressBar"></div></div>
+    <div class="status" id="sendStatus"></div>
+    <p class="note">Photos are encrypted on this phone and pass through our relay to your runbook page without being stored. They are resized to at most 2048 px.</p>
+  </section>
+
+  <div id="viewer" class="hidden">
+    <img id="viewerImg" alt="" />
+    <div class="bar">
+      <button id="vEarlier">◀ Earlier</button>
+      <button id="vLater">Later ▶</button>
+      <button id="vRetake">Retake</button>
+      <button id="vDelete" class="del">Delete</button>
+      <button id="vClose">Close</button>
+    </div>
+  </div>
+
+  <input type="file" id="nativeInput" accept="image/*" capture="environment" hidden />
+  <input type="file" id="libraryInput" accept="image/*" multiple hidden />
+
+  <script type="module" src="js/camera.js"></script>
+</body>
+</html>

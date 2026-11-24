@@ -10,7 +10,7 @@ https://github.com/user-attachments/assets/b9e5a243-4e68-455b-9b81-cf1004271c1e
 
 - **Chrome Extension** — The core autonomous agent. Describe what you need in plain English and it handles the rest — navigating, clicking, filling forms, and extracting data. Zero data leaves your machine except to your LLM. [Install](https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj)
 
-- **Runbook Share & Run** — Discover community-contributed runbooks for common tasks. Each runbook is a reusable, shareable prompt + config pair. Run them with one click directly from your browser. [Browse runbooks](https://runbookai.net/runbooks/)
+- **Runbook Share & Run** — Discover community-contributed runbooks for common tasks. Each runbook is a reusable, shareable prompt + config pair. Run them with one click directly from your browser, scan input photos with your phone, or describe a task and let the runbook designer write, test and refine your own (kept in your browser; export it to share via PR). [Browse runbooks](https://runbookai.net/runbooks/)
 
 - **MCP Server** — Invoke Runbook AI from Claude Code, Gemini CLI, and other MCP-compatible clients. See [runbook-ai-mcp](https://github.com/runbook-ai/runbook-ai-mcp).
 

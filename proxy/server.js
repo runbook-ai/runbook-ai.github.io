@@ -13,6 +13,7 @@
  */
 
 import http from 'node:http';
+import { handleRelay } from './relay.js';
 
 // ------------------------------------------------------------------ //
 //  Configuration
@@ -24,6 +25,8 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost:9003',
   'https://runbookai.net',
   'https://www.runbookai.net',
+  // Extra origins for local development, comma-separated.
+  ...(process.env.EXTRA_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean),
 ]);
 
 // ------------------------------------------------------------------ //
@@ -83,6 +86,9 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ error: 'Origin not allowed' }));
     return;
   }
+
+  // ---- Phone -> desktop photo relay ----
+  if (handleRelay(req, res, corsHeaders(origin))) return;
 
   // ---- Resolve target URL from query string ----
   const reqUrl = new URL(req.url || '/', `http://localhost:${PORT}`);

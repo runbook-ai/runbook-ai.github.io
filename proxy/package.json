@@ -1,12 +1,13 @@
 {
   "name": "runbook-ai-cors-proxy",
   "version": "1.0.0",
-  "description": "Lightweight CORS proxy for the Runbook AI agent page — forwards external API calls from the browser without exposing credentials to third parties.",
+  "description": "Lightweight CORS proxy plus the phone-to-desktop photo relay for runbookai.net. Zero dependencies; nothing is stored.",
   "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "PORT=8080 node --watch server.js"
+    "dev": "PORT=8080 node --watch server.js",
+    "test": "node --test test/"
   },
   "engines": {
     "node": ">=22"
