@@ -4,6 +4,7 @@ import { h, clear } from './dom.js';
 import { paramsForm } from './form.js';
 import { runPrompt, buildPrompt, renderResult, resultMeta } from './run.js';
 import { probeExtension, INSTALL_URL, extensionErrorText } from './extension.js';
+import { traceView, traceThumb } from './trace-view.js';
 
 const main = document.getElementById('main');
 let extensionInstalled = null;   // resolved by probe at startup
@@ -19,6 +20,8 @@ async function loadRepoList() {
   return out;
 }
 const loadRepoManifest = slug => fetch(`${slug}/manifest.json`).then(r => { if (!r.ok) throw new Error(`manifest for ${slug} not found`); return r.json(); });
+// trace.json is optional (runbooks saved from the extension); null when absent.
+const loadRepoTrace = slug => fetch(`${slug}/trace.json`).then(r => (r.ok ? r.json() : null)).catch(() => null);
 const loadRepoPrompt = slug => fetch(`${slug}/prompt.md`).then(r => { if (!r.ok) throw new Error(`prompt for ${slug} not found`); return r.text(); });
 
 async function loadRepoRunbook(slug) {
@@ -61,7 +64,12 @@ async function renderGallery() {
   for (const { slug, manifest } of await loadRepoList()) {
     const thumb = h('div.card-thumb', { style: { backgroundImage: `url('${slug}/demo.gif')` } });
     const probe = new Image();
-    probe.onerror = () => { thumb.style.backgroundImage = ''; thumb.textContent = 'No preview'; };
+    probe.onerror = async () => {
+      thumb.style.backgroundImage = '';
+      const trace = await loadRepoTrace(slug);
+      if (trace?.steps?.length) thumb.append(traceThumb(trace));
+      else thumb.textContent = 'No preview';
+    };
     probe.src = `${slug}/demo.gif`;
     grid.append(h('a.runbook-card', { href: `?runbook=${encodeURIComponent(slug)}`, 'data-nav': '' },
       thumb,
@@ -89,8 +97,13 @@ async function renderRun(slug) {
     h('h1.detail-title', manifest.title || slug),
     h('p.detail-desc', manifest.description || ''),
     manifest.note ? h('div.runbook-note', manifest.note) : null);
+  // The demo GIF, or else the trace of a successful run (runbooks saved from
+  // the extension have no screenshots).
   const img = h('img.detail-gif', { src: `${slug}/demo.gif`, alt: `${manifest.title} demo` });
-  img.onerror = () => img.replaceWith(h('div.gif-placeholder', 'Demo coming soon'));
+  img.onerror = async () => {
+    const trace = await loadRepoTrace(slug);
+    img.replaceWith(trace?.steps?.length ? traceView(trace, manifest.params) : h('div.gif-placeholder', 'Demo coming soon'));
+  };
   left.append(img);
 
   // Right column: form + run.
@@ -127,7 +140,7 @@ async function renderRun(slug) {
     status.textContent = 'Starting runbook…';
     status.className = '';
     try {
-      const resp = await runPrompt({ prompt, files: form.allFiles(), onTick: s => { status.textContent = `Running… ${s}s (live progress in the side panel)`; } });
+      const resp = await runPrompt({ prompt, files: form.allFiles(), limits: manifest.config, onTick: s => { status.textContent = `Running… ${s}s (live progress in the side panel)`; } });
       const ok = resp.status === 'completed';
       status.textContent = ok ? `Completed in ${resp.elapsed}s.` : `Finished with status: ${resp.status || 'unknown'} (${resp.elapsed}s)`;
       status.className = ok ? 'success' : 'error';

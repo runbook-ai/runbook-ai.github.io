@@ -198,3 +198,29 @@ details.attachments .dropzone { margin-top: 8px; }
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 #toast.error { background: var(--bad); }
+
+/* -- Trace ("How it ran", for runbooks shared without a demo.gif) -- */
+.trace-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; background: #fcfcfd; }
+.trace-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }
+.trace-title { font-weight: 600; }
+.trace-meta { font-size: 0.8125rem; color: var(--faint); }
+.trace-steps { list-style: none; margin: 0; padding: 0; }
+.trace-step { padding: 7px 0; border-bottom: 1px solid #f1f2f4; font-size: 0.9rem; }
+.trace-step:last-child { border-bottom: none; }
+.trace-line { display: flex; gap: 8px; align-items: baseline; }
+.trace-mark { color: var(--ok); font-weight: 700; flex: none; }
+.trace-step.failed .trace-mark { color: var(--faint); }
+.trace-label { line-height: 1.45; overflow-wrap: anywhere; }
+.trace-times { color: var(--muted); font-weight: 600; }
+.trace-sites { margin: 2px 0 0 22px; font-size: 0.78rem; color: var(--muted); }
+.trace-actions { margin: 4px 0 0 22px; font-size: 0.82rem; }
+.trace-actions summary { cursor: pointer; color: var(--muted); }
+.trace-actions ul { margin: 4px 0 0 16px; color: #374151; line-height: 1.5; }
+.trace-actions li.failed { color: var(--faint); }
+.trace-url { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); overflow-wrap: anywhere; }
+.trace-pill { display: inline-block; background: var(--accent-soft); color: var(--accent-dark); border-radius: 4px; padding: 0 5px; font-size: 0.92em; font-weight: 500; }
+.trace-fine { margin-top: 10px; font-size: 0.75rem; color: var(--faint); }
+.trace-thumb { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 12px;
+  background: linear-gradient(135deg, #eef2ff, #f8fafc); color: var(--accent-dark); text-align: center; }
+.trace-thumb-sites { font-weight: 600; font-size: 0.9rem; overflow-wrap: anywhere; }
+.trace-thumb-steps { font-size: 0.78rem; color: var(--muted); }

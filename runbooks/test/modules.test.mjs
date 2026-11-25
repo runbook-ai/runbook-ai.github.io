@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { slugify, validateRunbook, fillTemplate, placeholders } from '../js/runbook-format.js';
+import { slugify, validateRunbook, validateTrace, fillTemplate, placeholders } from '../js/runbook-format.js';
+import { runConfig } from '../js/run.js';
 import { newKey, importKey, encryptBytes, decryptBytes, randomId, b64urlEncode, b64urlDecode } from '../js/crypto.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -64,3 +65,28 @@ test('crypto round trip; tampering and wrong key fail', async () => {
   assert.equal(randomId().length, 22);
 });
 
+
+test('manifest.config and trace.json validation', () => {
+  assert.deepEqual(validateRunbook({ ...RB, manifest: { ...RB.manifest, config: { maxSteps: 14 } } }).errors, []);
+  assert.ok(validateRunbook({ ...RB, manifest: { ...RB.manifest, config: { model: 'x' } } }).errors.some(e => /not supported/.test(e)));
+  const trace = { version: 1, steps: [{ tool: 'browse', label: 'Search {{query}}', ok: true, actions: [] }] };
+  assert.deepEqual(validateTrace(trace, RB.manifest).errors, []);
+  assert.ok(validateTrace({ ...trace, steps: [{ tool: 'done', label: '{{nope}}' }] }, RB.manifest).errors.some(e => /nope/.test(e)));
+  assert.ok(validateTrace({ version: 2, steps: [] }, RB.manifest).errors.length);
+});
+
+test('repo trace.json files validate', () => {
+  const list = JSON.parse(fs.readFileSync(path.join(repoRunbooks, 'runbooks.json'), 'utf8'));
+  for (const { slug } of list) {
+    const p = path.join(repoRunbooks, slug, 'trace.json');
+    if (!fs.existsSync(p)) continue;
+    const manifest = JSON.parse(fs.readFileSync(path.join(repoRunbooks, slug, 'manifest.json'), 'utf8'));
+    assert.deepEqual(validateTrace(JSON.parse(fs.readFileSync(p, 'utf8')), manifest).errors, [], slug);
+  }
+});
+
+test('runConfig clamps manifest limits', () => {
+  assert.deepEqual(runConfig(null), { maxSteps: 30 });
+  assert.deepEqual(runConfig({ maxSteps: 14, maxIterations: 40 }), { maxSteps: 14, maxIterations: 40 });
+  assert.deepEqual(runConfig({ maxSteps: 500, maxIterations: 1 }), { maxSteps: 60, maxIterations: 5 });
+});

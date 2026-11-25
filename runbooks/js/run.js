@@ -37,7 +37,7 @@ export function buildPrompt(promptTpl, form) {
  * can only be opened from a user gesture). `onTick(seconds)` while running.
  * Resolves with the runPlannerTask response; throws on extension errors.
  */
-export async function runPrompt({ prompt, files = [], onTick = () => {} }) {
+export async function runPrompt({ prompt, files = [], limits = null, onTick = () => {} }) {
   await openSidePanel();
   const taskFiles = await toTaskFiles(files);
   const t0 = Date.now();
@@ -45,8 +45,10 @@ export async function runPrompt({ prompt, files = [], onTick = () => {} }) {
   try {
     // Per-task overrides apply to this run only; the LLM is whatever the
     // extension is set to (its free tier when no API key is set). maxSteps 30: runbook
-    // bootstraps make many cheap tool calls.
-    const config = { maxSteps: 30 };
+    // bootstraps make many cheap tool calls. A runbook's manifest.config
+    // (saved from the extension: what its successful run needed, plus slack)
+    // overrides it, clamped to 5–60.
+    const config = runConfig(limits);
     const resp = await ext('runPlannerTask', { prompt, config, files: taskFiles });
     clearInterval(tick);
     if (resp?.error) throw Object.assign(new Error(resp.message || resp.error), { code: resp.error });
@@ -56,6 +58,15 @@ export async function runPrompt({ prompt, files = [], onTick = () => {} }) {
   } finally {
     clearInterval(tick);
   }
+}
+
+/** Run config from a manifest's config: maxSteps 5–60 (default 30), maxIterations 5–100. */
+export function runConfig(limits) {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v))));
+  const config = { maxSteps: 30 };
+  if (limits && Number(limits.maxSteps) > 0) config.maxSteps = clamp(limits.maxSteps, 5, 60);
+  if (limits && Number(limits.maxIterations) > 0) config.maxIterations = clamp(limits.maxIterations, 5, 100);
+  return config;
 }
 
 // The agent likely switched to another tab; switch back to this page.
