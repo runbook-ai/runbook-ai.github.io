@@ -123,3 +123,14 @@ test('per-IP POST rate limit; spoofed X-Forwarded-For does not reset it', async 
   // A different real client is unaffected.
   assert.equal((await post(id, 'hello', {}, { 'X-Real-IP': '198.51.100.1' })).status, 404);
 });
+
+test('relay works without an Origin header (extension side panel GET); the CORS proxy does not', async () => {
+  const id = room();
+  const ctl = new AbortController();
+  const res = await fetch(`${base}/relay/${id}/events`, { signal: ctl.signal });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('access-control-allow-origin'), null);
+  assert.equal((await post(id, 'hello', {})).status, 200);
+  ctl.abort();
+  assert.equal((await fetch(`${base}/proxy?url=${encodeURIComponent('https://example.com')}`)).status, 403);
+});

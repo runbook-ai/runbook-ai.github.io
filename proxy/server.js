@@ -25,6 +25,9 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost:9003',
   'https://runbookai.net',
   'https://www.runbookai.net',
+  // The Runbook AI extension's side panel (phone scan via /relay). The ID is
+  // fixed by the manifest key, so it's the same for store and unpacked builds.
+  'chrome-extension://kjbhngehjkiiecaflccjenmoccielojj',
   // Extra origins for local development, comma-separated.
   ...(process.env.EXTRA_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean),
 ]);
@@ -78,6 +81,17 @@ const server = http.createServer(async (req, res) => {
     }
     res.end();
     return;
+  }
+
+  // ---- Phone relay: requests without an Origin header ----
+  // Chrome sends no Origin on GETs from an extension page with host
+  // permissions (the side panel's EventSource). The origin check adds no
+  // protection to the relay -- non-browser clients can send any Origin; the
+  // random room id is what keeps a room private -- so a missing Origin is
+  // allowed there. A wrong Origin is still rejected below, and the CORS proxy
+  // keeps the strict check.
+  if (!origin && (req.url || '').startsWith('/relay/')) {
+    if (handleRelay(req, res, {})) return;
   }
 
   // ---- Origin check ----
