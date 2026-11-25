@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Runbook AI — The AI That Acts on Your Behalf in the Browser</title>
-  <meta name="description" content="Runbook AI is an autonomous, local-first AI agent that lives in your browser. Tell it what you need and it handles the rest — no scripting, no hand-holding." />
+  <title>Runbook AI — The AI Agent for Real Work in Your Browser</title>
+  <meta name="description" content="Runbook AI is a local-first AI agent in your own Chrome. Watch every step, step in when it matters, and turn a good run into a runbook you can repeat and improve." />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -240,8 +240,8 @@
   <section class="hero">
     <div class="hero-header">
       <div class="hero-badge">Local-first &bull; Privacy-first &bull; Open source</div>
-      <h1>The AI that <span>acts on your behalf</span> in the browser</h1>
-      <p class="hero-subtitle">Runbook AI is an autonomous AI agent that lives in your browser. Tell it what you need — it figures out the steps, navigates pages, fills forms, and gets things done on its own. No scripting, no hand-holding.</p>
+      <h1>The AI agent for <span>real work</span> in your browser</h1>
+      <p class="hero-subtitle">Runbook AI works in your own Chrome, on the sites you are already signed in to. Watch every step, step in when it matters, and turn a run that worked into a runbook you can repeat and improve.</p>
     </div>
 
     <div class="carousel-container">
@@ -252,8 +252,8 @@
             <div class="carousel-slide">
               <div class="video-wrapper">
                 <iframe
-                  src="https://www.youtube.com/embed/FrghGseCx04"
-                  title="Runbook AI in action"
+                  src="https://www.youtube.com/embed/49hhDnEhjiI"
+                  title="Turn a good run into a runbook"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   loading="lazy"
                   allowfullscreen>
@@ -263,8 +263,30 @@
             <div class="carousel-slide">
               <div class="video-wrapper">
                 <iframe
-                  src="https://www.youtube.com/embed/dxtUFrOE4vw"
-                  title="Runbook AI overview"
+                  src="https://www.youtube.com/embed/fgsi6r7vdok"
+                  title="It stops and asks before it submits"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  loading="lazy"
+                  allowfullscreen>
+                </iframe>
+              </div>
+            </div>
+            <div class="carousel-slide">
+              <div class="video-wrapper">
+                <iframe
+                  src="https://www.youtube.com/embed/TZxfJR01rM8"
+                  title="Drive your Chrome from Claude Code via MCP"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  loading="lazy"
+                  allowfullscreen>
+                </iframe>
+              </div>
+            </div>
+            <div class="carousel-slide">
+              <div class="video-wrapper">
+                <iframe
+                  src="https://www.youtube.com/embed/10GO7z1IZ5c"
+                  title="Runbook AI demo reel"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   loading="lazy"
                   allowfullscreen>
@@ -277,6 +299,8 @@
       </div>
       <div class="carousel-dots" id="carouselDots">
         <div class="carousel-dot active"></div>
+        <div class="carousel-dot"></div>
+        <div class="carousel-dot"></div>
         <div class="carousel-dot"></div>
       </div>
     </div>
@@ -299,14 +323,14 @@
       <div class="component-card">
         <div class="component-icon" style="background:#e0e7ff;">🧩</div>
         <h3>Chrome Extension</h3>
-        <p>The core autonomous agent. Describe what you need in plain English and it handles the rest — navigating, clicking, filling forms, and extracting data on its own. Zero data leaves your machine except to your LLM.</p>
+        <p>The agent in your side panel. Describe the task in plain English and watch it work step by step. It waits for you on logins and captchas, asks before payments or submitting orders, and lets you pause, take over or correct it mid-run. Zero data leaves your machine except to your LLM.</p>
         <a class="card-link" href="https://chromewebstore.google.com/detail/runbook-ai/kjbhngehjkiiecaflccjenmoccielojj" target="_blank">Install →</a>
       </div>
 
       <div class="component-card">
         <div class="component-icon" style="background:#d1fae5;">📋</div>
         <h3>Runbook Share &amp; Run</h3>
-        <p>Discover community-contributed runbooks for common tasks. Each runbook is a reusable, shareable prompt + config pair. Run them with one click directly from your browser.</p>
+        <p>When a task goes right, click <strong>Save as runbook</strong>: it becomes a reusable task with parameters (a city, a price limit, a date). Rerun it with new values, improve it from your feedback after each run, and share it with the community.</p>
         <a class="card-link" href="/runbooks/">Browse runbooks →</a>
       </div>
 
@@ -317,14 +341,56 @@
         <a class="card-link" href="https://github.com/runbook-ai/runbook-ai-mcp" target="_blank">View on GitHub →</a>
       </div>
 
-      <div class="component-card" style="opacity:0.72;">
+      <div class="component-card">
         <div class="component-icon" style="background:#fce7f3;">🧠</div>
         <h3>Browser Agent LLM</h3>
-        <p>A custom LLM fine-tuned specifically for autonomous browser tasks — faster, cheaper, and more reliable than general-purpose models for navigating, clicking, and extracting data from the web.</p>
-        <span class="card-link" style="color:#7c3aed;cursor:default;">Coming soon</span>
+        <p>A small open-weights model (9B) trained for browser tasks on real agent runs, already serving part of the agent's work, with reinforcement learning on <a href="https://github.com/runbook-ai/websandbox" target="_blank">websandbox</a>, our open-source copies of the WebArena sites. Early days, with a long way to go.</p>
+        <span class="card-link" style="color:#7c3aed;cursor:default;">In progress</span>
       </div>
 
     </div>
+  </section>
+
+  <hr class="divider" />
+
+  <section class="why-section">
+    <div class="section-label">Built for real work</div>
+    <h2>An agent you can trust with tasks that matter</h2>
+    <p>Most AI agents ask you to hand over the keys and hope. Runbook AI keeps you in control, and gets better every time a task goes right.</p>
+    <ul class="key-features">
+      <li>
+        <span class="kf-icon">👀</span>
+        <div><strong>Watch every step</strong><span>A readable line for each step, live in the side panel, so you always know what it is doing and why.</span></div>
+      </li>
+      <li>
+        <span class="kf-icon">✋</span>
+        <div><strong>Step in any time</strong><span>Pause it to log in or do a step yourself, or stop it and type a correction. It picks up from where it was.</span></div>
+      </li>
+      <li>
+        <span class="kf-icon">❓</span>
+        <div><strong>It asks first</strong><span>Logins, captchas and two-factor codes wait for you. Before payments, messages, orders or deletes, it asks, with suggested replies.</span></div>
+      </li>
+      <li>
+        <span class="kf-icon">🔁</span>
+        <div><strong>Runbooks that improve</strong><span>Save a finished task as a runbook, rerun it with new values, and accept improvements as a reviewable diff after each run.</span></div>
+      </li>
+      <li>
+        <span class="kf-icon">🧭</span>
+        <div><strong>Skills and site APIs</strong><span>What the agent learns about a site becomes a skill you approve, sometimes calling the site's own data API with your session.</span></div>
+      </li>
+      <li>
+        <span class="kf-icon">⏰</span>
+        <div><strong>Monitors and schedules</strong><span>Watch a page and act only when something changes, or run a task every morning.</span></div>
+      </li>
+      <li>
+        <span class="kf-icon">🔐</span>
+        <div><strong>Local vault</strong><span>Passwords and card numbers stay in a vault on your machine, used only when a task needs them.</span></div>
+      </li>
+      <li>
+        <span class="kf-icon">📱</span>
+        <div><strong>Snap it with your phone</strong><span>Scan a QR code and send photos from your phone straight into a task or a runbook.</span></div>
+      </li>
+    </ul>
   </section>
 
   <hr class="divider" />
@@ -363,7 +429,7 @@
 
   <section class="cta-section">
     <h2>Let it handle the work</h2>
-    <p>Install the extension, point it at your LLM, and delegate your first task. No account required.</p>
+    <p>Install the extension and delegate your first task. Free to start: no account and no API key needed. Or bring your own model key (Gemini, OpenAI, Anthropic, Ollama).</p>
   </section>
 
   <footer>
@@ -379,7 +445,7 @@
       var prevBtn = document.getElementById('prevBtn');
       var nextBtn = document.getElementById('nextBtn');
       var current = 0;
-      var total = 2;
+      var total = 4;
 
       function goTo(i) {
         current = (i + total) % total;
