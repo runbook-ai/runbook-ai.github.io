@@ -1,6 +1,4 @@
-// Running a runbook through the extension, rendering the result, and
-// gathering run evidence for the designer. Shared by the Run page and the
-// Designer's Test run, so both take exactly the same path.
+// Running a runbook through the extension and rendering the result.
 
 import { ext, openSidePanel } from './extension.js';
 import { fillTemplate } from './runbook-format.js';
@@ -47,11 +45,8 @@ export async function runPrompt({ prompt, files = [], onTick = () => {} }) {
   try {
     // Per-task overrides apply to this run only; the LLM is whatever the
     // extension is set to (its free tier when no API key is set). maxSteps 30: runbook
-    // bootstraps make many cheap tool calls. enableLocalHistory: the
-    // extension records this run's LLM calls in its own IndexedDB (in this
-    // browser, nothing leaves it) so getTaskLlmLogs can give the designer a
-    // step trace; the setting is off by default.
-    const config = { maxSteps: 30, enableLocalHistory: true };
+    // bootstraps make many cheap tool calls.
+    const config = { maxSteps: 30 };
     const resp = await ext('runPlannerTask', { prompt, config, files: taskFiles });
     clearInterval(tick);
     if (resp?.error) throw Object.assign(new Error(resp.message || resp.error), { code: resp.error });
@@ -129,59 +124,4 @@ a{color:#6366f1;text-decoration:none}a:hover{text-decoration:underline}</style>
 export function resultMeta(resp) {
   const names = Object.keys(resp?.files || {});
   return `Task ${resp?.taskId || '?'} · ${resp?.runCount ?? 0} step${resp?.runCount === 1 ? '' : 's'}${resp?.elapsed != null ? ` · ${resp.elapsed}s` : ''}${names.length ? ' · ' + names.join(', ') : ''}`;
-}
-
-const clip = (s, n) => {
-  const str = String(s || '');
-  return str.length > n ? str.slice(0, n) + `… [${str.length - n} more chars]` : str;
-};
-
-const stripTags = s => String(s || '').replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, '').replace(/<[^>]+>/g, ' ').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
-
-/**
- * What the designer gets about a run (§6.3): status, result, returned files
- * as text, the step trace (one line per LLM call), errors, and the params
- * used (file params as names only). Never file contents of inputs.
- */
-export async function collectEvidence(resp, { values = {}, error = null } = {}) {
-  const ev = {
-    status: error ? 'error' : resp?.status || 'unknown',
-    taskId: resp?.taskId || null,
-    steps: resp?.runCount ?? null,
-    elapsedSec: resp?.elapsed ?? null,
-    params: values,
-    result: clip(resp?.result, 4000),
-    returnedFiles: {},
-    trace: [],
-    errors: [],
-  };
-  if (error) ev.errors.push(clip(error, 1000));
-  let budget = 6000;
-  for (const f of Object.values(resp?.files || {})) {
-    if (budget <= 0) break;
-    const isText = /^text\/|json|html|csv|xml/i.test(f.mimeType || '') || /\.(html?|txt|md|csv|json)$/i.test(f.name || '');
-    if (!isText) { ev.returnedFiles[f.name] = `(${f.mimeType || 'binary'}, ${f.size || '?'} bytes)`; continue; }
-    const text = clip(stripTags(decodeBase64Utf8(f.base64 || '')), Math.min(budget, 3000));
-    ev.returnedFiles[f.name] = text;
-    budget -= text.length;
-  }
-  if (resp?.taskId) {
-    try {
-      const logs = (await ext('getTaskLlmLogs', { taskId: resp.taskId }))?.logs || [];
-      const lines = logs.map(l => `[${l.role || '?'}] ${l.summary || l.userPromptHint || ''}`.trim());
-      let traceBudget = 8000;
-      const kept = [];
-      for (const line of lines.slice(-80).reverse()) {
-        const c = clip(line, 300);
-        if (traceBudget - c.length < 0) break;
-        kept.unshift(c);
-        traceBudget -= c.length;
-      }
-      ev.trace = kept;
-      ev.errors.push(...lines.filter(l => /error|fail|timeout|captcha|denied|not found/i.test(l)).slice(-5).map(l => clip(l, 400)));
-    } catch (err) {
-      ev.errors.push(`(could not read the step trace: ${err.message})`);
-    }
-  }
-  return ev;
 }
