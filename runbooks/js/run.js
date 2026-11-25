@@ -2,7 +2,7 @@
 // gathering run evidence for the designer. Shared by the Run page and the
 // Designer's Test run, so both take exactly the same path.
 
-import { ext, openSidePanel, FREE_LLM } from './extension.js';
+import { ext, openSidePanel } from './extension.js';
 import { fillTemplate } from './runbook-format.js';
 import { escapeHtml } from './dom.js';
 
@@ -39,18 +39,19 @@ export function buildPrompt(promptTpl, form) {
  * can only be opened from a user gesture). `onTick(seconds)` while running.
  * Resolves with the runPlannerTask response; throws on extension errors.
  */
-export async function runPrompt({ prompt, files = [], useFree = false, onTick = () => {} }) {
+export async function runPrompt({ prompt, files = [], onTick = () => {} }) {
   await openSidePanel();
   const taskFiles = await toTaskFiles(files);
   const t0 = Date.now();
   const tick = setInterval(() => onTick(Math.floor((Date.now() - t0) / 1000)), 1000);
   try {
-    // Per-task overrides apply to this run only. maxSteps 30: runbook
+    // Per-task overrides apply to this run only; the LLM is whatever the
+    // extension is set to (its free tier when no API key is set). maxSteps 30: runbook
     // bootstraps make many cheap tool calls. enableLocalHistory: the
     // extension records this run's LLM calls in its own IndexedDB (in this
     // browser, nothing leaves it) so getTaskLlmLogs can give the designer a
     // step trace; the setting is off by default.
-    const config = { maxSteps: 30, enableLocalHistory: true, ...(useFree ? FREE_LLM : {}) };
+    const config = { maxSteps: 30, enableLocalHistory: true };
     const resp = await ext('runPlannerTask', { prompt, config, files: taskFiles });
     clearInterval(tick);
     if (resp?.error) throw Object.assign(new Error(resp.message || resp.error), { code: resp.error });

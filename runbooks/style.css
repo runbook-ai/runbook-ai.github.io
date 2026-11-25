@@ -194,12 +194,8 @@ input[type="text"], input[type="number"], input[type="date"], select, textarea {
 }
 textarea { font-family: var(--mono); font-size: 0.8125rem; line-height: 1.6; resize: vertical; }
 input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,0.15); background: #fff; }
-.free-api-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-.free-api-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
-.free-api-row label { font-size: 0.875rem; color: #374151; cursor: pointer; user-select: none; }
-.free-badge { font-size: 0.72rem; font-weight: 600; color: var(--ok); background: #d1fae5; border-radius: 4px; padding: 1px 6px; }
-.run-hint { font-size: 0.8125rem; color: var(--faint); margin: 4px 0 14px; }
-.run-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.run-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.composer-note { margin-top: 6px; }
 #status { font-size: 0.875rem; color: var(--muted); }
 #status.success { color: var(--ok); }
 #status.error { color: var(--bad); }
@@ -300,8 +296,6 @@ ul.changes { margin: 8px 0 4px 18px; font-size: 0.85rem; }
 .chip-actions button:hover { border-color: var(--accent); color: var(--accent); }
 .msg-designer .btn { margin-top: 8px; }
 .composer { border-top: 1px solid var(--line); padding: 12px 14px 8px; }
-.composer .free-key { margin-top: 8px; }
-.composer .run-hint { margin-bottom: 4px; }
 .pane-draft { padding: 18px 20px 22px; min-height: 480px; }
 .draft-empty { text-align: center; padding: 60px 20px; }
 .draft-empty h2 { font-size: 1.2rem; margin-bottom: 8px; }

@@ -1,9 +1,8 @@
-// The run form: params (text/number/textarea/date/select/file) plus a shared
-// "free API key" toggle. Used by the Run page and the Designer's Try it tab.
+// The run form: params (text/number/textarea/date/select/file). Used by the
+// Run page and the Designer's Try it tab.
 
 import { h, clear } from './dom.js';
 import { openScanner } from './phone-relay.js';
-import { prefs } from './local-store.js';
 
 // ---------------------------------------------------------------- files ---
 
@@ -44,25 +43,6 @@ export function fileWidget({ label, multiple = false, accept = '', onChange = ()
   drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
   drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('drag'); add(e.dataTransfer.files); });
   return { el: drop, files: () => files.slice(), add, clear: () => { files = []; render(); onChange(); } };
-}
-
-// ------------------------------------------------------------- free key ---
-
-const FREE_HINT = 'Rate limited — bring your own key for faster responses.';
-
-/** The shared "Use free API key" checkbox (remembered per browser). */
-export function freeKeyToggle(id = 'freeKey' + Math.random().toString(36).slice(2, 7)) {
-  const box = h('input', { type: 'checkbox', id, checked: !!prefs.get('useFree', false) });
-  box.addEventListener('change', () => {
-    prefs.set('useFree', box.checked);
-    // Keep every toggle on the page in sync (Run form, designer chat).
-    for (const other of document.querySelectorAll('input.free-key-box')) if (other !== box) other.checked = box.checked;
-  });
-  box.classList.add('free-key-box');
-  const el = h('div.free-key',
-    h('div.free-api-row', box, h('label', { for: id }, 'Use free API key'), h('span.free-badge', 'FREE')),
-    h('div.run-hint', FREE_HINT));
-  return { el, checked: () => box.checked };
 }
 
 // ---------------------------------------------------------------- params ---

@@ -5,7 +5,7 @@
 import { h, clear, timeAgo, toast } from './dom.js';
 import { session } from './local-store.js';
 import { validateRunbook, manifestJson, normalizeManifest, lineDiff } from './runbook-format.js';
-import { paramsForm, freeKeyToggle } from './form.js';
+import { paramsForm } from './form.js';
 import { runPrompt, buildPrompt, renderResult, resultMeta, collectEvidence } from './run.js';
 import { designTurn } from './designer-llm.js';
 import { attachVoiceInput } from './voice-input.js';
@@ -44,7 +44,6 @@ export async function renderDesigner(main, slugParam) {
   const mic = h('button.icon-btn');
   const sendBtn = h('button.btn', { onclick: () => send() }, 'Send');
   const voice = attachVoiceInput(input, mic, { onError: msg => toast(msg, 'error') });
-  const free = freeKeyToggle('designerFree');
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
 
   const left = h('section.pane.pane-chat',
@@ -52,8 +51,9 @@ export async function renderDesigner(main, slugParam) {
     thread,
     h('div.composer',
       h('div.input-with-actions', input, h('div.input-actions', mic, sendBtn)),
-      free.el,
-      noExtension ? h('p.fine', 'The extension isn’t installed, so the designer uses the free key. Install it to test-run.') : null));
+      h('p.fine.composer-note', noExtension
+        ? 'The extension isn’t installed, so the designer uses the free Runbook AI model. Install it to test-run.'
+        : 'Uses the model set in the Runbook AI extension (the free Runbook AI model if no API key is set).')));
 
   // ------------------------------------------------------------ right ---
   const right = h('section.pane.pane-draft');
@@ -137,7 +137,7 @@ export async function renderDesigner(main, slugParam) {
         evidence: usedEvidence,
         request: text,
         startFrom: draft ? null : startFrom,
-      }, { useFree: free.checked() || noExtension, ownSlug: draft ? draft.slug : null, existingSlugs: store.list().map(r => r.slug) });
+      }, { useFree: noExtension, ownSlug: draft ? draft.slug : null, existingSlugs: store.list().map(r => r.slug) });
       evidence = null;
       if (!draft) {
         draft = { ...out.draft, slug: store.uniqueSlug(out.draft.slug) };
@@ -165,8 +165,8 @@ export async function renderDesigner(main, slugParam) {
   }
 
   function designerError(err) {
-    if (err.code === 'extension-missing' || err.code === 'side-panel-message-failed') return `${extensionErrorText(err)} Or check “Use free API key”.`;
-    if (/api key|apiKey|401|unauthorized/i.test(err.message)) return `${err.message} — set an API key in the extension’s settings, or check “Use free API key”.`;
+    if (err.code === 'extension-missing' || err.code === 'side-panel-message-failed') return extensionErrorText(err);
+    if (/api key|apiKey|401|unauthorized/i.test(err.message)) return `${err.message} — check the API key in the extension’s Settings, or clear it to use the free Runbook AI model.`;
     return err.message;
   }
 
@@ -264,7 +264,6 @@ export async function renderDesigner(main, slugParam) {
     const status = h('span#status');
     const runBtn = h('button.btn.btn-run', { type: 'button' }, '▶ Test run');
     const form = paramsForm(draft.manifest, { onChange: () => gate() });
-    const runFree = freeKeyToggle();
     const frame = h('iframe.result-frame', { sandbox: 'allow-popups allow-same-origin', title: 'Test run result' });
     const meta = h('span.result-meta');
     const resultCard = h('div.result-card.hidden', h('div.result-head', h('h3.result-title', 'Result'), meta), frame);
@@ -281,7 +280,7 @@ export async function renderDesigner(main, slugParam) {
       status.textContent = 'Starting…'; status.className = '';
       let resp = null, error = null;
       try {
-        resp = await runPrompt({ prompt: buildPrompt(draft.prompt, form), files: form.allFiles(), useFree: runFree.checked(), onTick: s => { status.textContent = `Running… ${s}s (live progress in the side panel)`; } });
+        resp = await runPrompt({ prompt: buildPrompt(draft.prompt, form), files: form.allFiles(), onTick: s => { status.textContent = `Running… ${s}s (live progress in the side panel)`; } });
         const ok = resp.status === 'completed';
         status.textContent = ok ? `Completed in ${resp.elapsed}s.` : `Finished: ${resp.status}`;
         status.className = ok ? 'success' : 'error';
@@ -297,7 +296,7 @@ export async function renderDesigner(main, slugParam) {
       persistConv(); placeholder(); drawThread(); gate();
       input.focus();
     };
-    body.append(form.el, runFree.el, h('div.run-row', runBtn, status),
+    body.append(form.el, h('div.run-row', runBtn, status),
       h('p.fine', 'Test run saves the draft, then runs it exactly like the run page. The result shows up in the conversation so the designer can improve it.'),
       resultCard);
   }

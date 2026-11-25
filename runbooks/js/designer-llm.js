@@ -118,7 +118,7 @@ export async function callDesignerLLM(messages, { useFree }) {
     },
     body: JSON.stringify({ model: 'free', temperature: 0.3, response_format: { type: 'json_object' }, messages }),
   });
-  if (res.status === 429) throw Object.assign(new Error('Free limit reached — try again in a few minutes, or uncheck "Use free API key" to use your own key.'), { code: 'rate-limited' });
+  if (res.status === 429) throw Object.assign(new Error('Free limit reached — try again in a few minutes, or install the Runbook AI extension and add your own API key.'), { code: 'rate-limited' });
   const data = await res.json().catch(() => null);
   if (!res.ok) throw Object.assign(new Error(data?.error?.message || `LLM error ${res.status}`), { code: 'llm-error' });
   const content = data?.choices?.[0]?.message?.content;

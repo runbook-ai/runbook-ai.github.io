@@ -171,7 +171,7 @@ export const session = {
   },
 };
 
-/** localStorage preference helpers (remembered tab, free-key checkbox). */
+/** localStorage preference helpers (remembered gallery tab). */
 export const prefs = {
   get(key, fallback = null) {
     try { const v = globalThis.localStorage?.getItem('runbookai.pref.' + key); return v === null || v === undefined ? fallback : JSON.parse(v); } catch { return fallback; }

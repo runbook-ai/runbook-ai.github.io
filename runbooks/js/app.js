@@ -5,7 +5,7 @@ import { h, clear, timeAgo, download, copyText, modal, toast } from './dom.js';
 import { createStore, prefs, session } from './local-store.js';
 import { validateRunbook, manifestJson, slugify } from './runbook-format.js';
 import { exportZip, candidatesFromFiles, candidatesFromJson } from './runbook-io.js';
-import { paramsForm, freeKeyToggle } from './form.js';
+import { paramsForm } from './form.js';
 import { runPrompt, buildPrompt, renderResult, resultMeta, collectEvidence } from './run.js';
 import { probeExtension, INSTALL_URL, extensionErrorText } from './extension.js';
 import { attachVoiceInput } from './voice-input.js';
@@ -214,7 +214,6 @@ async function renderRun({ slug, local }) {
   let promptDirty = false;
   promptArea.addEventListener('input', () => { promptDirty = true; });
   const form = paramsForm(manifest, { onChange: () => { if (!promptDirty) promptArea.value = buildPrompt(rb.prompt, form); gate(); } });
-  const free = freeKeyToggle();
 
   // Imported runbooks: read the prompt before the first run.
   const needsReview = local && rb.origin?.kind === 'import' && !rb.reviewed;
@@ -237,7 +236,7 @@ async function renderRun({ slug, local }) {
   promptArea.value = buildPrompt(rb.prompt, form);
   gate();
 
-  const right = h('div.detail-card', extensionBanner() || '', review || '', form.el, free.el, h('div.run-row', runBtn, status), disclosure);
+  const right = h('div.detail-card', extensionBanner() || '', review || '', form.el, h('div.run-row', runBtn, status), disclosure);
 
   // Result.
   const resultFrame = h('iframe.result-frame', { sandbox: 'allow-popups allow-same-origin', title: 'Runbook result' });
@@ -266,7 +265,7 @@ async function renderRun({ slug, local }) {
     status.className = '';
     let resp = null, error = null;
     try {
-      resp = await runPrompt({ prompt, files: form.allFiles(), useFree: free.checked(), onTick: s => { status.textContent = `Running… ${s}s (live progress in the side panel)`; } });
+      resp = await runPrompt({ prompt, files: form.allFiles(), onTick: s => { status.textContent = `Running… ${s}s (live progress in the side panel)`; } });
       const ok = resp.status === 'completed';
       status.textContent = ok ? `Completed in ${resp.elapsed}s.` : `Finished with status: ${resp.status || 'unknown'} (${resp.elapsed}s)`;
       status.className = ok ? 'success' : 'error';
