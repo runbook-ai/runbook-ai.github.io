@@ -1,0 +1,12 @@
+{
+  "title": "Price Drop Watcher",
+  "description": "Compares a product's price across Amazon, Walmart, Target and Best Buy, then keeps checking and emails you when it drops to your target price.",
+  "note": "Sign into Gmail in this browser so the agent can email the alert. The price comparison itself needs no logins. The follow-up checks run while Chrome is open with the Runbook AI extension.",
+  "params": [
+    { "name": "product",      "label": "Product",                   "type": "text",   "default": "Sony WH-1000XM5 wireless headphones" },
+    { "name": "target_price", "label": "Alert at or below (USD)",   "type": "number", "default": 300 },
+    { "name": "stores",       "label": "Stores to check",           "type": "text",   "default": "Amazon, Walmart, Target, Best Buy" },
+    { "name": "email",        "label": "Email the alert to",        "type": "text",   "placeholder": "you@example.com", "required": true },
+    { "name": "check_every_hours", "label": "Check every (hours)",  "type": "number", "default": 24 }
+  ]
+}
