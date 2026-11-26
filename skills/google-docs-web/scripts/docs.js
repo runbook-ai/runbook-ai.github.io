@@ -50,7 +50,13 @@ async function insertHtml({ html, at = 'end', text } = {}) {
         .replace(/<\/(td|th)>/gi, '\t').replace(/<(br|\/p|\/h\d|\/tr|\/li|\/div)\b[^>]*>/gi, '\n')
         .replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
         .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\n{3,}/g, '\n\n').trim();
-    return pasteData({ 'text/html': html, 'text/plain': plain }, at);
+    // Docs auto-detects LaTeX: text between two "$" pastes as an italic
+    // equation ("$539,000 ($369/sq ft)" -> math). A "$" in its own <span>
+    // is not detected (an entity or zero-width joiner still is). Text only,
+    // never inside tags/attributes.
+    const safe = String(html).split(/(<[^>]*>)/).map(part => part.startsWith('<') ? part
+        : part.replace(/\$|&#36;|&#x24;|&dollar;/gi, '<span>$$</span>')).join('');
+    return pasteData({ 'text/html': safe, 'text/plain': plain }, at);
 }
 
 /** revisions/tiles URL for downloadFile; run on an open editor tab (reads its token). fileId/type default to the open file. -> url */
