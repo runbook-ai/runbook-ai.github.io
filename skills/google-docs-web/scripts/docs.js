@@ -17,8 +17,9 @@ async function exportUrl({ docId, format = 'txt' } = {}) {
     return `https://docs.google.com/document/d/${id}/export?format=${encodeURIComponent(format)}`;
 }
 
-/** Paste plain text into the open doc. at: 'end' | 'start' | 'replace' (select all first). -> 'pasted' */
-async function insertText({ text, at = 'end' } = {}) {
+// Move the caret (at: 'end' | 'start' | 'replace' = select all), then paste a
+// synthetic ClipboardEvent carrying `data` ({mime: string}).
+async function pasteData(data, at) {
     const frame = document.querySelector('.docs-texteventtarget-iframe');
     if (!frame) throw new Error('no .docs-texteventtarget-iframe -- is a Google Doc open in edit mode?');
     const d = frame.contentDocument;
@@ -31,9 +32,25 @@ async function insertText({ text, at = 'end' } = {}) {
     else throw new Error(`at must be 'end', 'start' or 'replace', got "${at}"`);
     await sleep(500);
     const dt = new DataTransfer();
-    dt.setData('text/plain', String(text ?? ''));
+    for (const [mime, v] of Object.entries(data)) dt.setData(mime, String(v ?? ''));
     t.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
     return 'pasted';
+}
+
+/** Paste plain text into the open doc. at: 'end' | 'start' | 'replace' (select all first). -> 'pasted' */
+async function insertText({ text, at = 'end' } = {}) {
+    return pasteData({ 'text/plain': text }, at);
+}
+
+/** Paste HTML as formatted content: h1-h3 become real headings, table/tr/td a Docs table, b/i/ul/ol/a keep their formatting. text = plain fallback (default: html without tags). at as in insertText. -> 'pasted' */
+async function insertHtml({ html, at = 'end', text } = {}) {
+    if (!html) throw new Error('html is required');
+    // Docs enforces Trusted Types (no DOMParser/innerHTML), so strip tags by hand.
+    const plain = text ?? String(html)
+        .replace(/<\/(td|th)>/gi, '\t').replace(/<(br|\/p|\/h\d|\/tr|\/li|\/div)\b[^>]*>/gi, '\n')
+        .replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\n{3,}/g, '\n\n').trim();
+    return pasteData({ 'text/html': html, 'text/plain': plain }, at);
 }
 
 /** revisions/tiles URL for downloadFile; run on an open editor tab (reads its token). fileId/type default to the open file. -> url */

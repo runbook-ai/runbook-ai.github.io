@@ -1,6 +1,6 @@
 ---
 name: google-docs-web
-description: Reading and editing Google Docs documents (docs.google.com/document/...) -- the editor is a canvas, so page HTML shows no document text; read via the cookie-authenticated export endpoint with downloadFile, write by dispatching synthetic paste/keyboard events to the hidden text-event iframe with evalJavaScript. Also covers edit/version history for any Google Doc, Sheet or Slide via the revisions/tiles endpoint (exact revision timestamps + editor names).
+description: Reading and editing Google Docs documents (docs.google.com/document/...) -- the editor is a canvas, so page HTML shows no document text; read via the cookie-authenticated export endpoint with downloadFile, write plain text or formatted HTML (headings, tables) by dispatching synthetic paste/keyboard events to the hidden text-event iframe with evalJavaScript. Also covers edit/version history for any Google Doc, Sheet or Slide via the revisions/tiles endpoint (exact revision timestamps + editor names).
 license: MIT
 metadata:
   runbookai:
@@ -41,9 +41,21 @@ to it are processed normally. From `evalJavaScript` on the doc's tab:
 inserts at the top; `at: 'replace'` selects all first, so the paste
 REPLACES everything.
 
+For anything formatted -- a report, summary, table -- use
+`skills.googleDocsWeb.insertHtml({html, at})` instead: Docs renders the
+pasted HTML as real formatting. `<h1>`-`<h3>` become headings (they show in
+the document outline), `<table><tr><td>` a real Docs table, and
+`<b>`, `<i>`, `<ul>`/`<ol>`, `<a href>` keep their formatting. Write simple
+semantic HTML (no ASCII rules or markdown); `at` works as above. Give tables
+`border="1" style="border-collapse:collapse;width:100%"` -- a bare `<table>`
+pastes borderless and squeezed to its content width.
+When the content comes from a task file, build the HTML from the file in
+the same evalJavaScript (`inputFiles`) so every value is copied, not
+retyped.
+
 - Saving is automatic; wait ~2s, then verify by re-downloading the `txt`
   export. Report success only after that check.
-- The paste is plain text: a Ctrl+A full replacement erases the document's
+- `insertText` pastes plain text: a Ctrl+A full replacement erases the document's
   images and formatting. Use it for docs that are plain text anyway or that
   you just wrote; for a targeted edit in a formatted doc, prefer appending,
   or tell the user the edit needs manual formatting.
